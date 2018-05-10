@@ -206,10 +206,6 @@
 <wire x1="-0.508" y1="81.12800625" x2="-0.508" y2="0" width="0.254" layer="20"/>
 <wire x1="-0.508" y1="0" x2="-6.858" y2="0" width="0.254" layer="20"/>
 <wire x1="-6.858" y1="0" x2="-6.858" y2="81.12800625" width="0.254" layer="20"/>
-<wire x1="-6.858" y1="61.06200625" x2="115.27599375" y2="61.06200625" width="0.381" layer="46"/>
-<wire x1="-6.858" y1="20.42200625" x2="115.27599375" y2="20.42200625" width="0.381" layer="46"/>
-<text x="122.89599375" y="61.06200625" size="1.778" layer="46" font="vector" ratio="15" align="center">v-score</text>
-<text x="122.89599375" y="20.42200625" size="1.778" layer="46" font="vector" ratio="15" align="center">v-score</text>
 </plain>
 <libraries>
 <library name="SparkFun-Capacitors">
