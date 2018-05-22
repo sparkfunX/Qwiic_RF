@@ -8,8 +8,8 @@
 
 //Location in EEPROM where various settings will be stored
 #define LOCATION_I2C_ADDR 0x01
-#define LOCATION_SYNC_WORD 0x02
-#define LOCATION_RADIO_ADDR 0x03
+#define LOCATION_RADIO_ADDR 0x02
+#define LOCATION_SYNC_WORD 0x03
 
 //There is an ADR jumpber on this board. When closed, forces I2C address to a given address.
 #define I2C_ADDRESS_DEFAULT 0x
@@ -32,6 +32,16 @@
 #define COMMAND_GET_PACKET_SNR 0x0E
 #define COMMAND_GET_PACKET_ID 0x0F
 #define COMMAND_SET_TX_POWER 0x10
+
+#define RESPONSE_TYPE_STATUS 0x00
+#define RESPONSE_TYPE_PAYLOAD 0x01
+#define RESPONSE_TYPE_CHANNEL 0x02
+#define RESPONSE_TYPE_PACKET_RSSI 0x03
+#define RESPONSE_TYPE_PACKET_SIZE 0x04
+#define RESPONSE_TYPE_PACKET_SENDER 0x05
+#define RESPONSE_TYPE_PACKET_RECIPIENT 0x06
+#define RESPONSE_TYPE_PACKET_SNR 0x07
+#define RESPONSE_TYPE_PACKET_ID 0x08
 
 #define TASK_NONE 0x00
 
@@ -59,8 +69,9 @@ void setup()
   readSystemSettings(); //Load all system settings from EEPROM
 
     if (!LoRa.begin(915E6)) {             // initialize ratio at 915 MHz
-    Serial.println("LoRa init failed. Check your connections.");
-    while (true);                       // if failed, do nothing
+    while (true){
+      // if failed, blink status LED
+    };
   }
 
   //Begin listening on I2C only after we've setup all our config and opened any files
