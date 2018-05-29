@@ -1,7 +1,10 @@
 //TODO
-//System Status Set/Clear
 //Load Settings from EEPROM
 //Reliable send verification routine
+//  x Add reliable send flag to message packet
+//  o Respond to reliable flag with checksum%255 of lastRecieved
+//  o Check all reponses from reliable wait status set to end of 
+//    ack timer for checksum%255 of lastRecieved
 
 #include <Wire.h>
 #include <EEPROM.h>
@@ -60,14 +63,15 @@ const int csPin = 10;          // LoRa radio chip select
 const int resetPin = 9;       // LoRa radio reset
 const int irqPin = 3;         // change for your board; must be a hardware interrupt pin
 
-
-//System status variable 
+//System status variable
 //Bit 0 - Ready To Send
 //Bit 1 - Packet Available
-//Bit 2 - Waiting on Reliable Send 
+//Bit 2 - Waiting on Reliable Send
 //Bit 3 - Reliable Send Timeout
 volatile byte systemStatus = 0b00000000;
 volatile byte settingI2CAddress = I2C_ADDRESS_DEFAULT;
+volatile unsigned long reliableSendTime = 0x00; //Seconds
+volatile byte reliableSendChk = 0x00;
 
 byte settingRFAddress = 0xBB;
 byte settingSyncWord = 0x00;
@@ -108,18 +112,30 @@ void setup()
 
 void loop()
 {
+
+  //If there is a "Waiting on Reliable Send" flag and the ack timer has expired,
+  //remove the flag and set the "Reliable Send Timeout" flag instead.
+  if ( ( (systemStatus >> 2) & 1 ) && ( millis() > ( reliableSendTime * 1000 ) + settingMessageTimeout ) ) {
+    systemStatus &= ~(1 << 2); //Clear "Waiting on Reliable Send" Status Flag
+    systemStatus |= 1 << 0; //Set "Ready" Status Flag
+    systemStatus |= 1 << 3; //Set "Reliable Send Timeout" Status Flag
+  }
+
   onReceive(LoRa.parsePacket());
 }
 
-void sendMessage(byte destination, String outgoing) {
+void sendMessage(byte destination, byte reliable, String outgoing) {
+  
   LoRa.beginPacket();                   // start packet
   LoRa.write(destination);              // add destination address
-  LoRa.write(settingRFAddress);             // add sender address
+  LoRa.write(settingRFAddress);         // add sender address
   LoRa.write(msgCount);                 // add message ID
+  LoRa.write(reliable);                 // add reliable send tag
   LoRa.write(outgoing.length());        // add payload length
   LoRa.print(outgoing);                 // add payload
   LoRa.endPacket();                     // finish packet and send it
   msgCount++;                           // increment message ID
+  
 }
 
 void onReceive(int packetSize) {
@@ -155,6 +171,13 @@ void onReceive(int packetSize) {
   lastReceived.rssi = LoRa.packetRssi();
   lastReceived.payloadLength = incomingLength;
   lastReceived.payload = incoming;
+
+  //If we're waiting on a Reliable Send ack, check to see if this is it...
+  if ( (systemStatus >> 2) & 1 ) {
+
+    
+
+  }
 
   systemStatus |= 1 << 1; //Set "New Payload" Status Flag
 
@@ -198,13 +221,29 @@ void receiveEvent(int numberOfBytesReceived)
 
     systemStatus &= ~(1 << 0); //Clear "Ready" Status Flag
 
-    sendMessage(recipient, payload);
+    sendMessage(recipient, 0, payload);
 
     systemStatus |= 1 << 0; //Set "Ready" Status Flag
 
   }
   else if (incoming == COMMAND_SEND_RELIABLE)
   {
+
+    byte recipient = Wire.read();
+
+    String payload = "";
+
+    while (Wire.available()) {
+      payload += (char)Wire.read();
+    }
+
+    systemStatus &= ~(1 << 0); //Clear "Ready" Status Flag
+
+    sendMessage(recipient, 1, payload);
+
+    reliableSendTime = millis();
+
+    systemStatus |= 1 << 2; //Set "Waiting on Reliable Send" Status Flag
 
   }
   else if (incoming == COMMAND_SET_RELIABLE_TIMEOUT)
@@ -231,7 +270,7 @@ void receiveEvent(int numberOfBytesReceived)
 
     settingSpreadFactor = newSpreadFactor;
     EEPROM.write(LOCATION_SPREAD_FACTOR, settingSpreadFactor);
-    
+
   }
   else if (incoming == COMMAND_SET_SYNC_WORD)
   {
@@ -245,7 +284,7 @@ void receiveEvent(int numberOfBytesReceived)
 
     byte newRFAddress = Wire.read();
 
-    if (newRFAddress < 0xFF) {
+    if (newRFAddress < 0xFF) { //0xFF is Broadcast Channel
       settingRFAddress = newRFAddress;
       EEPROM.write(LOCATION_RADIO_ADDR, settingRFAddress);
     }
@@ -345,22 +384,22 @@ void requestEvent()
   else if (responseType == RESPONSE_TYPE_PACKET_SENDER)
   {
     Wire.write(lastReceived.sender);
-    responseType = RESPONSE_TYPE_STATUS;    
+    responseType = RESPONSE_TYPE_STATUS;
   }
   else if (responseType == RESPONSE_TYPE_PACKET_RECIPIENT)
   {
     Wire.write(lastReceived.recipient);
-    responseType = RESPONSE_TYPE_STATUS;  
+    responseType = RESPONSE_TYPE_STATUS;
   }
   else if (responseType == RESPONSE_TYPE_PACKET_SNR)
   {
     Wire.write(lastReceived.snr);
-    responseType = RESPONSE_TYPE_STATUS; 
+    responseType = RESPONSE_TYPE_STATUS;
   }
   else if (responseType == RESPONSE_TYPE_PACKET_ID)
   {
     Wire.write(lastReceived.id);
-    responseType = RESPONSE_TYPE_STATUS; 
+    responseType = RESPONSE_TYPE_STATUS;
   }
   else //By default we respond with the result from the last operation
   {
