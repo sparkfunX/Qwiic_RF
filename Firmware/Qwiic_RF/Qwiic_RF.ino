@@ -1,19 +1,26 @@
+//TODO
+//System Status Set/Clear
+//Load Settings from EEPROM
+//Reliable send verification routine
+
 #include <Wire.h>
 #include <EEPROM.h>
 #include <SPI.h>
 #include <LoRa.h>
-
-#include <avr/sleep.h> //Needed for sleep_mode
-#include <avr/power.h> //Needed for powering down perihperals such as the ADC/TWI and Timers
+#include <avr/sleep.h>
+#include <avr/power.h>
 
 //Location in EEPROM where various settings will be stored
 #define LOCATION_I2C_ADDR 0x01
 #define LOCATION_RADIO_ADDR 0x02
 #define LOCATION_SYNC_WORD 0x03
+#define LOCATION_SPREAD_FACTOR 0x04
+#define LOCATION_MESSAGE_TIMEOUT 0x05
+#define LOCATION_TX_POWER 0x06
 
-//There is an ADR jumpber on this board. When closed, forces I2C address to a given address.
-#define I2C_ADDRESS_DEFAULT 0x
-#define I2C_ADDRESS_JUMPER_CLOSED 0x
+//There is an ADR jumpber on this board. When closed, forces I2C address to default.
+#define I2C_ADDRESS_DEFAULT 0x35
+#define I2C_ADDRESS_JUMPER_CLOSED 0x36
 
 //These are the commands we understand and may respond to
 #define COMMAND_GET_STATUS 0x01
@@ -23,19 +30,20 @@
 #define COMMAND_GET_PAYLOAD 0x05
 #define COMMAND_SET_SPREAD_FACTOR 0x06
 #define COMMAND_SET_SYNC_WORD 0x07
-#define COMMAND_SET_CHANNEL 0x08
-#define COMMAND_GET_CHANNEL 0x09
+#define COMMAND_SET_RF_ADDRESS 0x08
+#define COMMAND_GET_RF_ADDRESS 0x09
 #define COMMAND_GET_PACKET_RSSI 0x0A
-#define COMMAND_GET_PACKET_SIZE 0x0B
+#define COMMAND_GET_PAYLOAD_SIZE 0x0B
 #define COMMAND_GET_PACKET_SENDER 0x0C
 #define COMMAND_GET_PACKET_RECIPIENT 0x0D
 #define COMMAND_GET_PACKET_SNR 0x0E
 #define COMMAND_GET_PACKET_ID 0x0F
 #define COMMAND_SET_TX_POWER 0x10
+#define COMMAND_SET_I2C_ADDRESS 0x20
 
 #define RESPONSE_TYPE_STATUS 0x00
 #define RESPONSE_TYPE_PAYLOAD 0x01
-#define RESPONSE_TYPE_CHANNEL 0x02
+#define RESPONSE_TYPE_RF_ADDRESS 0x02
 #define RESPONSE_TYPE_PACKET_RSSI 0x03
 #define RESPONSE_TYPE_PACKET_SIZE 0x04
 #define RESPONSE_TYPE_PACKET_SENDER 0x05
@@ -43,23 +51,42 @@
 #define RESPONSE_TYPE_PACKET_SNR 0x07
 #define RESPONSE_TYPE_PACKET_ID 0x08
 
-#define TASK_NONE 0x00
-
 //Firmware version. This is sent when requested. Helpful for tech support.
-const byte firmwareVersionMajor = 1;
-const byte firmwareVersionMinor = 0;
+const byte firmwareVersionMajor = 0;
+const byte firmwareVersionMinor = 5;
 
 //Hardware pins
 const int csPin = 10;          // LoRa radio chip select
 const int resetPin = 9;       // LoRa radio reset
 const int irqPin = 3;         // change for your board; must be a hardware interrupt pin
 
-//Variables used in the I2C interrupt so we use volatile
-volatile byte systemStatus = SYSTEM_STATUS_OK; //Tracks the response from the MP3 IC
 
-volatile byte settingAddress = I2C_ADDRESS_DEFAULT; //The 7-bit I2C address of this QMP3
-volatile byte settingVolume = 0;
-volatile byte settingEQ = 0;
+//System status variable 
+//Bit 0 - Ready To Send
+//Bit 1 - Packet Available
+//Bit 2 - Waiting on Reliable Send 
+//Bit 3 - Reliable Send Timeout
+volatile byte systemStatus = 0b00000000;
+volatile byte settingI2CAddress = I2C_ADDRESS_DEFAULT;
+
+byte settingRFAddress = 0xBB;
+byte settingSyncWord = 0x00;
+byte settingSpreadFactor = 0x07;
+byte settingMessageTimeout = 0x1E;
+byte settingTXPower = 0x11;
+byte msgCount = 0x00;
+
+typedef struct {
+  byte id;
+  byte sender;
+  byte recipient;
+  byte snr;
+  byte rssi;
+  byte payloadLength;
+  String payload;
+} packet;
+
+packet lastReceived = {0, 0, 0, 0, 0, 0, ""};
 
 void setup()
 {
@@ -68,45 +95,221 @@ void setup()
 
   readSystemSettings(); //Load all system settings from EEPROM
 
-    if (!LoRa.begin(915E6)) {             // initialize ratio at 915 MHz
-    while (true){
+  if (!LoRa.begin(915E6)) {             // initialize ratio at 915 MHz
+    while (true) {
       // if failed, blink status LED
     };
   }
 
   //Begin listening on I2C only after we've setup all our config and opened any files
   startI2C(); //Determine the I2C address we should be using and begin listening on I2C bus
+  systemStatus |= 1 << 0; //Set "Ready" Status Flag
 }
 
 void loop()
 {
-
+  onReceive(LoRa.parsePacket());
 }
 
+void sendMessage(byte destination, String outgoing) {
+  LoRa.beginPacket();                   // start packet
+  LoRa.write(destination);              // add destination address
+  LoRa.write(settingRFAddress);             // add sender address
+  LoRa.write(msgCount);                 // add message ID
+  LoRa.write(outgoing.length());        // add payload length
+  LoRa.print(outgoing);                 // add payload
+  LoRa.endPacket();                     // finish packet and send it
+  msgCount++;                           // increment message ID
+}
+
+void onReceive(int packetSize) {
+  if (packetSize == 0) return;          // if there's no packet, return
+
+  // read packet header bytes:
+  int recipient = LoRa.read();          // recipient address
+  byte sender = LoRa.read();            // sender address
+  byte incomingMsgId = LoRa.read();     // incoming msg ID
+  byte incomingLength = LoRa.read();    // incoming msg length
+
+  String incoming = "";
+
+  while (LoRa.available()) {
+    incoming += (char)LoRa.read();
+  }
+
+  if (incomingLength != incoming.length()) {   // check length for error
+    return;                             // skip rest of function
+  }
+
+  // if the recipient isn't this device or broadcast,
+  if (recipient != localAddress && recipient != 0xFF) {
+    return;                             // skip rest of function
+  }
+
+  // if message is for this device, or broadcast, print details:
+
+  lastReceived.id = incomingMsgId;
+  lastReceived.sender = sender;
+  lastReceived.recipient = recipient;
+  lastReceived.snr = LoRa.packetSnr();
+  lastReceived.rssi = LoRa.packetRssi();
+  lastReceived.payloadLength = incomingLength;
+  lastReceived.payload = incoming;
+
+  systemStatus |= 1 << 1; //Set "New Payload" Status Flag
+
+}
 
 void receiveEvent(int numberOfBytesReceived)
 {
   //Record bytes to local array
   byte incoming = Wire.read();
 
-  if (incoming == COMMAND_SET_ADDRESS) //Set new I2C address
+  if (incoming == COMMAND_SET_I2C_ADDRESS) //Set new I2C address
   {
     if (Wire.available())
     {
-      settingAddress = Wire.read();
+      settingI2CAddress = Wire.read();
 
       //Error check
-      if (settingAddress < 0x08 || settingAddress > 0x77)
+      if (settingI2CAddress < 0x08 || settingI2CAddress > 0x77)
         return; //Command failed. This address is out of bounds.
 
-      EEPROM.write(LOCATION_I2C_ADDRESS, settingAddress);
+      EEPROM.write(LOCATION_I2C_ADDRESS, settingI2CAddress);
 
       //Our I2C address may have changed because of user's command
       startI2C(); //Determine the I2C address we should be using and begin listening on I2C bus
     }
   }
-  else if (incoming == COMMAND_STOP)
+  else if (incoming == COMMAND_GET_STATUS)
   {
+    responseType = RESPONSE_TYPE_STATUS;
+  }
+  else if (incoming == COMMAND_SEND)
+  {
+
+    byte recipient = Wire.read();
+
+    String payload = "";
+
+    while (Wire.available()) {
+      payload += (char)Wire.read();
+    }
+
+    systemStatus &= ~(1 << 0); //Clear "Ready" Status Flag
+
+    sendMessage(recipient, payload);
+
+    systemStatus |= 1 << 0; //Set "Ready" Status Flag
+
+  }
+  else if (incoming == COMMAND_SEND_RELIABLE)
+  {
+
+  }
+  else if (incoming == COMMAND_SET_RELIABLE_TIMEOUT)
+  {
+
+    settingMessageTimeout = Wire.read();
+    EEPROM.write(LOCATION_MESSAGE_TIMEOUT, settingMessageTimeout);
+
+  }
+  else if (incoming == COMMAND_GET_PAYLOAD)
+  {
+
+    responseType = RESPONSE_TYPE_PAYLOAD;
+
+  }
+  else if (incoming == COMMAND_SET_SPREAD_FACTOR)
+  {
+
+    byte newSpreadFactor = Wire.read();
+
+    if (newSpreadFactor > 12 || newSpreadFactor < 6) {
+      return;
+    }
+
+    settingSpreadFactor = newSpreadFactor;
+    EEPROM.write(LOCATION_SPREAD_FACTOR, settingSpreadFactor);
+    
+  }
+  else if (incoming == COMMAND_SET_SYNC_WORD)
+  {
+
+    settingSyncWord = Wire.read();
+    EEPROM.write(LOCATION_SYNC_WORD, settingSyncWord);
+
+  }
+  else if (incoming == COMMAND_SET_RF_ADDRESS)
+  {
+
+    byte newRFAddress = Wire.read();
+
+    if (newRFAddress < 0xFF) {
+      settingRFAddress = newRFAddress;
+      EEPROM.write(LOCATION_RADIO_ADDR, settingRFAddress);
+    }
+
+  }
+  else if (incoming == COMMAND_GET_RF_ADDRESS)
+  {
+
+    responseType = RESPONSE_TYPE_RF_ADDRESS;
+    return;
+
+  }
+  else if (incoming == COMMAND_GET_PACKET_RSSI)
+  {
+
+    responseType = RESPONSE_TYPE_PACKET_RSSI;
+    return;
+
+  }
+  else if (incoming == COMMAND_GET_PACKET_SIZE)
+  {
+
+    responseType = RESPONSE_TYPE_PACKET_SIZE;
+    return;
+
+  }
+  else if (incoming == COMMAND_GET_PACKET_SENDER)
+  {
+
+    responseType = RESPONSE_TYPE_PACKET_SENDER;
+    return;
+
+  }
+  else if (incoming == COMMAND_GET_PACKET_RECIPIENT)
+  {
+
+    responseType = RESPONSE_TYPE_PACKET_RECIPIENT;
+    return;
+
+  }
+  else if (incoming == COMMAND_GET_PACKET_SNR)
+  {
+
+    responseType = RESPONSE_TYPE_PACKET_SNR;
+    return;
+
+  }
+  else if (incoming == COMMAND_GET_PACKET_ID)
+  {
+
+    responseType = RESPONSE_TYPE_PACKET_ID;
+    return;
+
+  }
+  else if (incoming == COMMAND_SET_TX_POWER)
+  {
+
+    byte txPower = Wire.read();
+    if (txPower > 17) {
+      txPower = 17;
+    }
+    settingTXPower = txPower;
+    EEPROM.write(LOCATION_TX_POWER, settingTXPower);
+    LoRa.setTxPower(txPower);
 
   }
 
@@ -114,13 +317,50 @@ void receiveEvent(int numberOfBytesReceived)
 
 void requestEvent()
 {
-  if (responseType == )
+  if (responseType == RESPONSE_TYPE_STATUS)
   {
-    Wire.write();
+    Wire.write(systemStatus);
   }
-  else if (responseType == )
+  else if (responseType == RESPONSE_TYPE_PAYLOAD)
   {
-    
+    Wire.write(lastReceived.payload, lastReceived.payloadLength);
+    responseType = RESPONSE_TYPE_STATUS;
+    systemStatus &= ~(1 << 1); //Clear "New Payload" Status Flag
+  }
+  else if (responseType == RESPONSE_TYPE_RF_ADDRESS)
+  {
+    Wire.write(settingRFAddress);
+    responseType = RESPONSE_TYPE_STATUS;
+  }
+  else if (responseType == RESPONSE_TYPE_PACKET_RSSI)
+  {
+    Wire.write(lastReceived.rssi);
+    responseType = RESPONSE_TYPE_STATUS;
+  }
+  else if (responseType == RESPONSE_TYPE_PACKET_SIZE)
+  {
+    Wire.write(lastReceived.payloadLength);
+    responseType = RESPONSE_TYPE_STATUS;
+  }
+  else if (responseType == RESPONSE_TYPE_PACKET_SENDER)
+  {
+    Wire.write(lastReceived.sender);
+    responseType = RESPONSE_TYPE_STATUS;    
+  }
+  else if (responseType == RESPONSE_TYPE_PACKET_RECIPIENT)
+  {
+    Wire.write(lastReceived.recipient);
+    responseType = RESPONSE_TYPE_STATUS;  
+  }
+  else if (responseType == RESPONSE_TYPE_PACKET_SNR)
+  {
+    Wire.write(lastReceived.snr);
+    responseType = RESPONSE_TYPE_STATUS; 
+  }
+  else if (responseType == RESPONSE_TYPE_PACKET_ID)
+  {
+    Wire.write(lastReceived.id);
+    responseType = RESPONSE_TYPE_STATUS; 
   }
   else //By default we respond with the result from the last operation
   {
@@ -132,11 +372,11 @@ void requestEvent()
 void readSystemSettings(void)
 {
   //Read what I2C address we should use
-  settingAddress = EEPROM.read(LOCATION_I2C_ADDRESS);
-  if (settingAddress == 255)
+  settingI2CAddress = EEPROM.read(LOCATION_I2C_ADDRESS);
+  if (settingI2CAddress == 255)
   {
-    settingAddress = I2C_ADDRESS_DEFAULT; //By default, we listen for I2C_ADDRESS_DEFAULT
-    EEPROM.write(LOCATION_I2C_ADDRESS, settingAddress);
+    settingI2CAddress = I2C_ADDRESS_DEFAULT; //By default, we listen for I2C_ADDRESS_DEFAULT
+    EEPROM.write(LOCATION_I2C_ADDRESS, settingI2CAddress);
   }
 }
 
@@ -146,7 +386,7 @@ void startI2C()
   Wire.end(); //Before we can change addresses we need to stop
 
   if (digitalRead(adr) == HIGH) //Default is HIGH.
-    Wire.begin(settingAddress); //Start I2C and answer calls using address from EEPROM
+    Wire.begin(settingI2CAddress); //Start I2C and answer calls using address from EEPROM
   else //User has closed jumper with solder to GND
     Wire.begin(I2C_ADDRESS_JUMPER_CLOSED); //Force address to I2C_ADDRESS_NO_JUMPER if user has opened the solder jumper
 
