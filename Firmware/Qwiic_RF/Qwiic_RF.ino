@@ -4,7 +4,7 @@
 //  x Add reliable send flag to message packet
 //  o Respond to reliable flag with checksum%255 of lastRecieved
 //  o Check all reponses from reliable wait status set to end of 
-//    ack timer for checksum%255 of lastRecieved
+//    ack timer for checksum%255 of lastSent
 
 #include <Wire.h>
 #include <EEPROM.h>
