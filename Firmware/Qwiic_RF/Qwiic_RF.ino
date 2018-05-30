@@ -20,6 +20,7 @@
 //There is an ADR jumpber on this board. When closed, forces I2C address to default.
 #define I2C_ADDRESS_DEFAULT 0x35
 #define I2C_ADDRESS_JUMPER_CLOSED 0x36
+#define ADR_JUMPER 0x04
 
 //These are the commands we understand and may respond to
 #define COMMAND_GET_STATUS 0x01
