@@ -1,2 +1,2 @@
-# Qwiic_LoRa
+# Qwiic_RF
 LoRa Radio for the Qwiic System
