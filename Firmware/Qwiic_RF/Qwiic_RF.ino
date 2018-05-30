@@ -1,5 +1,4 @@
 //TODO
-//Global Cleanup
 //Pairing Sequence
 
 #include <Wire.h>
@@ -20,7 +19,6 @@
 //There is an ADR jumpber on this board. When closed, forces I2C address to default.
 #define I2C_ADDRESS_DEFAULT 0x35
 #define I2C_ADDRESS_JUMPER_CLOSED 0x36
-#define ADR_JUMPER 0x04
 
 //These are the commands we understand and may respond to
 #define COMMAND_GET_STATUS 0x01
@@ -51,14 +49,22 @@
 #define RESPONSE_TYPE_PACKET_SNR 0x07
 #define RESPONSE_TYPE_PACKET_ID 0x08
 
+//A Few Pin Definitions
+#define ADR_JUMPER 4
+#define PAIR_BTN A1
+#define PAIR_LED A2
+#define PWR_LED A3
+
 //Firmware version. This is sent when requested. Helpful for tech support.
 const byte firmwareVersionMajor = 0;
 const byte firmwareVersionMinor = 5;
 
-//Hardware pins
+//RFM95 pins
 const int csPin = 10;          // LoRa radio chip select
 const int resetPin = 9;       // LoRa radio reset
 const int irqPin = 3;         // change for your board; must be a hardware interrupt pin
+
+//*** These get twiddled during interrupts so they're type volatile ***
 
 //System status variable
 //Bit 0 - Ready To Send
@@ -66,10 +72,18 @@ const int irqPin = 3;         // change for your board; must be a hardware inter
 //Bit 2 - Waiting on Reliable Send
 //Bit 3 - Reliable Send Timeout
 volatile byte systemStatus = 0b00000000;
+//This global is used to keep track of the I2C Address (Software Switchable)
 volatile byte settingI2CAddress = I2C_ADDRESS_DEFAULT;
-volatile unsigned long reliableSendTime = 0x00; //Seconds
+//These globals are used for the "Reliable Send" routine
+volatile unsigned long reliableSendTime = 0x00;
+volatile unsigned long reliableResend = 0x00;
 volatile byte reliableSendChk = 0x00;
 
+//*** ***
+
+//These are the radio parameters that are used to 
+//Initialize the RFM95. We assign them default
+//values so we can load EEPROM on first boot.
 byte settingRFAddress = 0xBB;
 byte settingSyncWord = 0x00;
 byte settingSpreadFactor = 0x07;
@@ -77,6 +91,7 @@ byte settingMessageTimeout = 0x1E;
 byte settingTXPower = 0x11;
 byte msgCount = 0x00;
 
+//This is a type for storing radio packets
 typedef struct {
   byte id;
   byte sender;
@@ -87,26 +102,29 @@ typedef struct {
   String payload;
 } packet;
 
+//Let's initialize a few instances of our new type
 packet lastReceived = {0, 0, 0, 0, 0, 0, ""};
 packet lastSent = {0, 0, 0, 0, 0, 0, ""};
 
 void setup()
 {
-
-  pinMode(A1, INPUT);
-  digitalWrite(A1, HIGH);
+  //Set pin modes
+  pinMode(PAIR_BTN, INPUT_PULLUP);
+  pinMode(ADR_JUMPER, INPUT_PULLUP);
+  pinMode(PAIR_LED, OUTPUT);
+  pinMode(PWR_LED, OUTPUT);
 
   //If this is the first ever boot, or EEPROM was nuked, load defaults to EEPROM:
   if ( EEPROM.read(LOCATION_RADIO_ADDR) == 0xFF ) {
-    
+
     EEPROM.write(LOCATION_I2C_ADDR, I2C_ADDRESS_DEFAULT);
     EEPROM.write(LOCATION_RADIO_ADDR, settingRFAddress);
     EEPROM.write(LOCATION_SYNC_WORD, settingSyncWord);
     EEPROM.write(LOCATION_SPREAD_FACTOR, settingSpreadFactor);
     EEPROM.write(LOCATION_MESSAGE_TIMEOUT, settingMessageTimeout);
     EEPROM.write(LOCATION_TX_POWER, settingTXPower);
-    
-  }else{
+
+  } else {
 
     settingRFAddress = EEPROM.read(LOCATION_RADIO_ADDR);
     settingSyncWord = EEPROM.read(LOCATION_SYNC_WORD);
@@ -114,10 +132,8 @@ void setup()
     settingMessageTimeout = EEPROM.read(LOCATION_MESSAGE_TIMEOUT);
     settingTXPower = EEPROM.read(LOCATION_TX_POWER);
 
-    if (  )
-    
   }
-  
+
   // override the default CS, reset, and IRQ pins (optional)
   LoRa.setPins(csPin, resetPin, irqPin);// set CS, reset, IRQ pin
 
@@ -136,20 +152,29 @@ void setup()
 
 void loop()
 {
-
   //If there is a "Waiting on Reliable Send" flag and the ack timer has expired,
   //remove the flag and set the "Reliable Send Timeout" flag instead.
   if ( ( (systemStatus >> 2) & 1 ) && ( millis() > ( reliableSendTime * 1000 ) + settingMessageTimeout ) ) {
     systemStatus &= ~(1 << 2); //Clear "Waiting on Reliable Send" Status Flag
     systemStatus |= 1 << 0; //Set "Ready" Status Flag
     systemStatus |= 1 << 3; //Set "Reliable Send Timeout" Status Flag
+    reliableSendChk = 0x00; //Reset Checksum accumulator
+    reliableSendTime = 0x00; //Reset reliableSendTime timestamp
+    reliableResend = 0x00; //Reset reliableResend timestamp
+    //If there is a "Waiting on Reliable Send" flag and the ack timer has NOT expired,
+    //check the reliable send interval counter and possibly try resending.
+  } else if ( ( (systemStatus >> 2) & 1 ) && ( millis() < ( reliableSendTime * 1000 ) + settingMessageTimeout ) ) {
+    if ( millis() > reliableResend + 1000 ) { //Retry once per second
+      sendMessage(lastSent.recipient, 0, lastSent.payload);
+      reliableResend = millis();
+    }
   }
 
   onReceive(LoRa.parsePacket());
 }
 
-void sendMessage(byte destination, byte reliable, String outgoing) {
-  
+void sendMessage(byte destination, byte reliable, String outgoing) 
+{
   LoRa.beginPacket();                   // start packet
   LoRa.write(destination);              // add destination address
   LoRa.write(settingRFAddress);         // add sender address
@@ -166,7 +191,6 @@ void sendMessage(byte destination, byte reliable, String outgoing) {
   lastSent.payload = outgoing;
 
   msgCount++;                           // increment message ID
-  
 }
 
 void onReceive(int packetSize) {
@@ -211,45 +235,45 @@ void onReceive(int packetSize) {
   //Byte 2: RSSI of Reliable Packet
   if ( (systemStatus >> 2) & 1 ) {
 
-      //If the first byte of the payload is equal to the sum of
-      //The last sent message, we have Reliable Ack. 
-      if ( payload.charAt(0) == reliableSendChk ) {
-        
-        reliableSendChk = 0x00; //Reset Checksum accumulator 
-        reliableSendTime = 0x00; //Reset reliableSendTime timestamp
-        systemStatus &= ~(1 << 2); //Clear "Waiting on Reliable Send" Status Flag
-        systemStatus |= 1 << 0; //Set "Ready" Status Flag
-        systemStatus &= ~(1 << 3); //Clear "Reliable Send Timeout" Status Flag
+    //If the first byte of the payload is equal to the sum of
+    //The last sent message, we have Reliable Ack.
+    if ( payload.charAt(0) == reliableSendChk ) {
 
-        //Grab these tidbits in case anyone wants them
-        lastSent.snr = payload.charAt(1);
-        lastSent.rssi = payload.charAt(2);        
-        
-      }
-    
+      reliableSendChk = 0x00; //Reset Checksum accumulator
+      reliableSendTime = 0x00; //Reset reliableSendTime timestamp
+      reliableResend = 0x00; //Reset reliableResend timestamp
+      systemStatus &= ~(1 << 2); //Clear "Waiting on Reliable Send" Status Flag
+      systemStatus |= 1 << 0; //Set "Ready" Status Flag
+      systemStatus &= ~(1 << 3); //Clear "Reliable Send Timeout" Status Flag
+
+      //Grab these tidbits in case anyone wants them
+      lastSent.snr = payload.charAt(1);
+      lastSent.rssi = payload.charAt(2);
+
+    }
+
   }
 
   //If this was a Reliable type message, calculate sum%255 and reply
-  if( reliable == 1 ){
+  if ( reliable == 1 ) {
 
-      String response = "";
-      byte reliableAckChk = 0;
-      //Calculate simple checksum of payload, reliableSendChk is type byte
-      //so for sake of cycles, we will let it roll instead of explicitly 
-      //calculating (sum payload % 255) 
-      for ( int symbol = 0; symbol < incomingLength; symbol++ ) {
-        reliableAckChk += incoming.charAt(symbol);
-      }
-      response = reliableAckChk;
-      response += lastReceived.snr;
-      response += lastReceived.rssi;
-      //Return to Sender
-      sendMessage(sender, 0, response);
-          
+    String response = "";
+    byte reliableAckChk = 0;
+    //Calculate simple checksum of payload, reliableSendChk is type byte
+    //so for sake of cycles, we will let it roll instead of explicitly
+    //calculating (sum payload % 255)
+    for ( int symbol = 0; symbol < incomingLength; symbol++ ) {
+      reliableAckChk += incoming.charAt(symbol);
+    }
+    response = reliableAckChk;
+    response += lastReceived.snr;
+    response += lastReceived.rssi;
+    //Return to Sender
+    sendMessage(sender, 0, response);
+
   }
 
   systemStatus |= 1 << 1; //Set "New Payload" Status Flag
-
 }
 
 void receiveEvent(int numberOfBytesReceived)
@@ -311,13 +335,14 @@ void receiveEvent(int numberOfBytesReceived)
     sendMessage(recipient, 1, payload);
 
     //Calculate simple checksum of payload, reliableSendChk is type byte
-    //so for sake of cycles, we will let it roll instead of explicitly 
-    //calculating (sum payload % 255) 
+    //so for sake of cycles, we will let it roll instead of explicitly
+    //calculating (sum payload % 255)
     for ( int symbol = 0; symbol < payload.length(); symbol++ ) {
       reliableSendChk += payload.charAt(symbol);
     }
 
     reliableSendTime = millis();
+    reliableResend = millis();
 
     systemStatus |= 1 << 2; //Set "Waiting on Reliable Send" Status Flag
 
@@ -427,7 +452,6 @@ void receiveEvent(int numberOfBytesReceived)
     LoRa.setTxPower(txPower);
 
   }
-
 }
 
 void requestEvent()
@@ -481,7 +505,6 @@ void requestEvent()
   {
     Wire.write(systemStatus);
   }
-
 }
 
 void readSystemSettings(void)
@@ -509,3 +532,12 @@ void startI2C()
   Wire.onReceive(receiveEvent);
   Wire.onRequest(requestEvent);
 }
+
+void pairingSequence(void) 
+{
+  
+
+
+  
+}
+
