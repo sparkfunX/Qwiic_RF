@@ -1,10 +1,6 @@
 //TODO
-//Load Settings from EEPROM
-//Reliable send verification routine
-//  x Add reliable send flag to message packet
-//  o Respond to reliable flag with checksum%255 of lastRecieved
-//  o Check all reponses from reliable wait status set to end of 
-//    ack timer for checksum%255 of lastSent
+//Global Cleanup
+//Pairing Sequence
 
 #include <Wire.h>
 #include <EEPROM.h>
@@ -91,9 +87,36 @@ typedef struct {
 } packet;
 
 packet lastReceived = {0, 0, 0, 0, 0, 0, ""};
+packet lastSent = {0, 0, 0, 0, 0, 0, ""};
 
 void setup()
 {
+
+  pinMode(A1, INPUT);
+  digitalWrite(A1, HIGH);
+
+  //If this is the first ever boot, or EEPROM was nuked, load defaults to EEPROM:
+  if ( EEPROM.read(LOCATION_RADIO_ADDR) == 0xFF ) {
+    
+    EEPROM.write(LOCATION_I2C_ADDR, I2C_ADDRESS_DEFAULT);
+    EEPROM.write(LOCATION_RADIO_ADDR, settingRFAddress);
+    EEPROM.write(LOCATION_SYNC_WORD, settingSyncWord);
+    EEPROM.write(LOCATION_SPREAD_FACTOR, settingSpreadFactor);
+    EEPROM.write(LOCATION_MESSAGE_TIMEOUT, settingMessageTimeout);
+    EEPROM.write(LOCATION_TX_POWER, settingTXPower);
+    
+  }else{
+
+    settingRFAddress = EEPROM.read(LOCATION_RADIO_ADDR);
+    settingSyncWord = EEPROM.read(LOCATION_SYNC_WORD);
+    settingSpreadFactor = EEPROM.read(LOCATION_SPREAD_FACTOR);
+    settingMessageTimeout = EEPROM.read(LOCATION_MESSAGE_TIMEOUT);
+    settingTXPower = EEPROM.read(LOCATION_TX_POWER);
+
+    if (  )
+    
+  }
+  
   // override the default CS, reset, and IRQ pins (optional)
   LoRa.setPins(csPin, resetPin, irqPin);// set CS, reset, IRQ pin
 
@@ -134,6 +157,13 @@ void sendMessage(byte destination, byte reliable, String outgoing) {
   LoRa.write(outgoing.length());        // add payload length
   LoRa.print(outgoing);                 // add payload
   LoRa.endPacket();                     // finish packet and send it
+
+  lastSent.id = msgCount;
+  lastSent.sender = settingRFAddress;
+  lastSent.recipient = destination;
+  lastSent.payloadLength = outgoing.length();
+  lastSent.payload = outgoing;
+
   msgCount++;                           // increment message ID
   
 }
@@ -145,6 +175,7 @@ void onReceive(int packetSize) {
   int recipient = LoRa.read();          // recipient address
   byte sender = LoRa.read();            // sender address
   byte incomingMsgId = LoRa.read();     // incoming msg ID
+  byte reliable = LoRa.read();          // reliable send tag
   byte incomingLength = LoRa.read();    // incoming msg length
 
   String incoming = "";
@@ -172,11 +203,48 @@ void onReceive(int packetSize) {
   lastReceived.payloadLength = incomingLength;
   lastReceived.payload = incoming;
 
-  //If we're waiting on a Reliable Send ack, check to see if this is it...
+  //If we're waiting on a Reliable Send ack, check to see if this is it.
+  //A Reliable Send Ack payload has three bytes:
+  //Byte 0: Reliable Ack Checksum
+  //Byte 1: SNR of Reliable Packet
+  //Byte 2: RSSI of Reliable Packet
   if ( (systemStatus >> 2) & 1 ) {
 
-    
+      //If the first byte of the payload is equal to the sum of
+      //The last sent message, we have Reliable Ack. 
+      if ( payload.charAt(0) == reliableSendChk ) {
+        
+        reliableSendChk = 0x00; //Reset Checksum accumulator 
+        reliableSendTime = 0x00; //Reset reliableSendTime timestamp
+        systemStatus &= ~(1 << 2); //Clear "Waiting on Reliable Send" Status Flag
+        systemStatus |= 1 << 0; //Set "Ready" Status Flag
+        systemStatus &= ~(1 << 3); //Clear "Reliable Send Timeout" Status Flag
 
+        //Grab these tidbits in case anyone wants them
+        lastSent.snr = payload.charAt(1);
+        lastSent.rssi = payload.charAt(2);        
+        
+      }
+    
+  }
+
+  //If this was a Reliable type message, calculate sum%255 and reply
+  if( reliable == 1 ){
+
+      String response = "";
+      byte reliableAckChk = 0;
+      //Calculate simple checksum of payload, reliableSendChk is type byte
+      //so for sake of cycles, we will let it roll instead of explicitly 
+      //calculating (sum payload % 255) 
+      for ( int symbol = 0; symbol < incomingLength; symbol++ ) {
+        reliableAckChk += incoming.charAt(symbol);
+      }
+      response = reliableAckChk;
+      response += lastReceived.snr;
+      response += lastReceived.rssi;
+      //Return to Sender
+      sendMessage(sender, 0, response);
+          
   }
 
   systemStatus |= 1 << 1; //Set "New Payload" Status Flag
@@ -240,6 +308,13 @@ void receiveEvent(int numberOfBytesReceived)
     systemStatus &= ~(1 << 0); //Clear "Ready" Status Flag
 
     sendMessage(recipient, 1, payload);
+
+    //Calculate simple checksum of payload, reliableSendChk is type byte
+    //so for sake of cycles, we will let it roll instead of explicitly 
+    //calculating (sum payload % 255) 
+    for ( int symbol = 0; symbol < payload.length(); symbol++ ) {
+      reliableSendChk += payload.charAt(symbol);
+    }
 
     reliableSendTime = millis();
 
@@ -424,7 +499,7 @@ void startI2C()
 {
   Wire.end(); //Before we can change addresses we need to stop
 
-  if (digitalRead(adr) == HIGH) //Default is HIGH.
+  if (digitalRead(ADR_JUMPER) == HIGH) //Default is HIGH.
     Wire.begin(settingI2CAddress); //Start I2C and answer calls using address from EEPROM
   else //User has closed jumper with solder to GND
     Wire.begin(I2C_ADDRESS_JUMPER_CLOSED); //Force address to I2C_ADDRESS_NO_JUMPER if user has opened the solder jumper
