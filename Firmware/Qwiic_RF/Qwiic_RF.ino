@@ -1,6 +1,3 @@
-//TODO
-//Pairing Sequence
-
 #include <Wire.h>
 #include <EEPROM.h>
 #include <SPI.h>
@@ -81,7 +78,7 @@ volatile byte reliableSendChk = 0x00;
 
 //*** ***
 
-//These are the radio parameters that are used to 
+//These are the radio parameters that are used to
 //Initialize the RFM95. We assign them default
 //values so we can load EEPROM on first boot.
 byte settingRFAddress = 0xBB;
@@ -98,13 +95,19 @@ typedef struct {
   byte recipient;
   byte snr;
   byte rssi;
+  byte reliable;
   byte payloadLength;
   String payload;
 } packet;
 
 //Let's initialize a few instances of our new type
-packet lastReceived = {0, 0, 0, 0, 0, 0, ""};
-packet lastSent = {0, 0, 0, 0, 0, 0, ""};
+packet lastReceived = {0, 0, 0, 0, 0, 0, 0, ""};
+packet lastSent = {0, 0, 0, 0, 0, 0, 0, ""};
+
+//Counter for the Pairing Button Hold-down
+uint16_t pair_hold = 0;
+
+byte responseType = RESPONSE_TYPE_STATUS;
 
 void setup()
 {
@@ -141,9 +144,21 @@ void setup()
 
   if (!LoRa.begin(915E6)) {             // initialize ratio at 915 MHz
     while (true) {
-      // if failed, blink status LED
+      // if failed, blink power LED
+      digitalWrite(PWR_LED, 1);
+      delay(500);
+      digitalWrite(PWR_LED, 0);
+      delay(500);
     };
+  } else {
+    // if success, light power LED
+    digitalWrite(PWR_LED, 1);
   }
+
+  //Set our radio parameters from the stored values
+  LoRa.setSyncWord(settingSyncWord);
+  LoRa.setSpreadingFactor(settingSpreadFactor);
+  LoRa.setTxPower(settingTXPower);
 
   //Begin listening on I2C only after we've setup all our config and opened any files
   startI2C(); //Determine the I2C address we should be using and begin listening on I2C bus
@@ -170,10 +185,21 @@ void loop()
     }
   }
 
+  //If the pairing button is being held
+  if ( !digitalRead(PAIR_BTN) ) {
+    pair_hold++;
+    if (pair_hold > 2000) {
+      pair_hold = 0;
+      pairingSequence();
+    }
+  }else{
+    pair_hold = 0;
+  }
+
   onReceive(LoRa.parsePacket());
 }
 
-void sendMessage(byte destination, byte reliable, String outgoing) 
+void sendMessage(byte destination, byte reliable, String outgoing)
 {
   LoRa.beginPacket();                   // start packet
   LoRa.write(destination);              // add destination address
@@ -189,6 +215,7 @@ void sendMessage(byte destination, byte reliable, String outgoing)
   lastSent.recipient = destination;
   lastSent.payloadLength = outgoing.length();
   lastSent.payload = outgoing;
+  lastSent.reliable = reliable;
 
   msgCount++;                           // increment message ID
 }
@@ -214,7 +241,7 @@ void onReceive(int packetSize) {
   }
 
   // if the recipient isn't this device or broadcast,
-  if (recipient != localAddress && recipient != 0xFF) {
+  if (recipient != settingRFAddress && recipient != 0xFF) {
     return;                             // skip rest of function
   }
 
@@ -227,6 +254,7 @@ void onReceive(int packetSize) {
   lastReceived.rssi = LoRa.packetRssi();
   lastReceived.payloadLength = incomingLength;
   lastReceived.payload = incoming;
+  lastReceived.reliable = reliable;
 
   //If we're waiting on a Reliable Send ack, check to see if this is it.
   //A Reliable Send Ack payload has three bytes:
@@ -237,7 +265,7 @@ void onReceive(int packetSize) {
 
     //If the first byte of the payload is equal to the sum of
     //The last sent message, we have Reliable Ack.
-    if ( payload.charAt(0) == reliableSendChk ) {
+    if ( reliable == reliableSendChk ) {
 
       reliableSendChk = 0x00; //Reset Checksum accumulator
       reliableSendTime = 0x00; //Reset reliableSendTime timestamp
@@ -247,11 +275,10 @@ void onReceive(int packetSize) {
       systemStatus &= ~(1 << 3); //Clear "Reliable Send Timeout" Status Flag
 
       //Grab these tidbits in case anyone wants them
-      lastSent.snr = payload.charAt(1);
-      lastSent.rssi = payload.charAt(2);
+      lastSent.snr = incoming.charAt(0);
+      lastSent.rssi = incoming.charAt(1);
 
     }
-
   }
 
   //If this was a Reliable type message, calculate sum%255 and reply
@@ -261,15 +288,19 @@ void onReceive(int packetSize) {
     byte reliableAckChk = 0;
     //Calculate simple checksum of payload, reliableSendChk is type byte
     //so for sake of cycles, we will let it roll instead of explicitly
-    //calculating (sum payload % 255)
+    //calculating (sum payload % 256)
     for ( int symbol = 0; symbol < incomingLength; symbol++ ) {
       reliableAckChk += incoming.charAt(symbol);
     }
-    response = reliableAckChk;
-    response += lastReceived.snr;
+    //Because we use values 0 and 1 for signalling, we ensure that the 
+    //checksum can never be < 1 
+    if ( reliableAckChk < 254 ) {
+      reliableAckChk += 2;
+    }
+    response = lastReceived.snr;
     response += lastReceived.rssi;
     //Return to Sender
-    sendMessage(sender, 0, response);
+    sendMessage(sender, reliableAckChk, response);
 
   }
 
@@ -291,7 +322,7 @@ void receiveEvent(int numberOfBytesReceived)
       if (settingI2CAddress < 0x08 || settingI2CAddress > 0x77)
         return; //Command failed. This address is out of bounds.
 
-      EEPROM.write(LOCATION_I2C_ADDRESS, settingI2CAddress);
+      EEPROM.write(LOCATION_I2C_ADDR, settingI2CAddress);
 
       //Our I2C address may have changed because of user's command
       startI2C(); //Determine the I2C address we should be using and begin listening on I2C bus
@@ -334,13 +365,22 @@ void receiveEvent(int numberOfBytesReceived)
 
     sendMessage(recipient, 1, payload);
 
+    //Reset checksum accumulator
+    reliableSendChk = 0;
+
     //Calculate simple checksum of payload, reliableSendChk is type byte
     //so for sake of cycles, we will let it roll instead of explicitly
-    //calculating (sum payload % 255)
+    //calculating (sum payload % 256) 
     for ( int symbol = 0; symbol < payload.length(); symbol++ ) {
       reliableSendChk += payload.charAt(symbol);
     }
 
+    //Because we use values 0 and 1 for signalling, we ensure that the 
+    //checksum can never be < 1 
+    if ( reliableSendChk < 254 ) {
+      reliableSendChk += 2;
+    }
+    
     reliableSendTime = millis();
     reliableResend = millis();
 
@@ -371,6 +411,7 @@ void receiveEvent(int numberOfBytesReceived)
 
     settingSpreadFactor = newSpreadFactor;
     EEPROM.write(LOCATION_SPREAD_FACTOR, settingSpreadFactor);
+    LoRa.setSpreadingFactor(settingSpreadFactor);
 
   }
   else if (incoming == COMMAND_SET_SYNC_WORD)
@@ -378,6 +419,7 @@ void receiveEvent(int numberOfBytesReceived)
 
     settingSyncWord = Wire.read();
     EEPROM.write(LOCATION_SYNC_WORD, settingSyncWord);
+    LoRa.setSyncWord(settingSyncWord);
 
   }
   else if (incoming == COMMAND_SET_RF_ADDRESS)
@@ -405,7 +447,7 @@ void receiveEvent(int numberOfBytesReceived)
     return;
 
   }
-  else if (incoming == COMMAND_GET_PACKET_SIZE)
+  else if (incoming == COMMAND_GET_PAYLOAD_SIZE)
   {
 
     responseType = RESPONSE_TYPE_PACKET_SIZE;
@@ -462,7 +504,9 @@ void requestEvent()
   }
   else if (responseType == RESPONSE_TYPE_PAYLOAD)
   {
-    Wire.write(lastReceived.payload, lastReceived.payloadLength);
+    char payload[256];
+    lastReceived.payload.toCharArray(payload, 256);
+    Wire.write(payload, lastReceived.payloadLength);
     responseType = RESPONSE_TYPE_STATUS;
     systemStatus &= ~(1 << 1); //Clear "New Payload" Status Flag
   }
@@ -510,11 +554,11 @@ void requestEvent()
 void readSystemSettings(void)
 {
   //Read what I2C address we should use
-  settingI2CAddress = EEPROM.read(LOCATION_I2C_ADDRESS);
+  settingI2CAddress = EEPROM.read(LOCATION_I2C_ADDR);
   if (settingI2CAddress == 255)
   {
     settingI2CAddress = I2C_ADDRESS_DEFAULT; //By default, we listen for I2C_ADDRESS_DEFAULT
-    EEPROM.write(LOCATION_I2C_ADDRESS, settingI2CAddress);
+    EEPROM.write(LOCATION_I2C_ADDR, settingI2CAddress);
   }
 }
 
@@ -533,11 +577,78 @@ void startI2C()
   Wire.onRequest(requestEvent);
 }
 
-void pairingSequence(void) 
+void pairingSequence(void)
 {
-  
+  digitalWrite(PAIR_LED, 1);
+  LoRa.setSyncWord(0x00);
+  String advertise = "###";
+  randomSeed(LoRa.random());
+  byte newSyncWord = random(255);
+  advertise += newSyncWord;
 
+  for (unsigned long listening = millis() ; millis() < listening + 3000 ; ) {
 
+    pairingParser(LoRa.parsePacket());
+    
+  }
   
+  while ( !pairingParser(LoRa.parsePacket()) ) {
+
+    sendMessage(0xFF, 0, advertise);
+    
+  }
+
+  for ( uint8_t blinky = 0 ; blinky < 5 ; blinky++ ) {
+
+    digitalWrite(PAIR_LED, 0);
+    delay(250);
+    digitalWrite(PAIR_LED, 1);
+    delay(250);
+    
+  }
+
+  digitalWrite(PAIR_LED, 0);
+}
+
+bool pairingParser(int packetSize) {
+  
+  if (packetSize == 0) return;          // if there's no packet, return
+
+  // read packet header bytes:
+  int recipient = LoRa.read();          // recipient address
+  byte sender = LoRa.read();            // sender address
+  byte incomingMsgId = LoRa.read();     // incoming msg ID
+  byte reliable = LoRa.read();          // reliable send tag
+  byte incomingLength = LoRa.read();    // incoming msg length
+
+  String incoming = "";
+
+  while (LoRa.available()) {
+    incoming += (char)LoRa.read();
+  }
+
+  if (incomingLength != incoming.length()) {   // check length for error
+    return;                             // skip rest of function
+  }
+
+  // if the recipient isn't this device or broadcast,
+  if (recipient != settingRFAddress && recipient != 0xFF) {
+    return 1;                             // skip rest of function
+  }
+
+  // check if it's a pairing request and send ack
+  if ( incoming.substring(0,3) == "###" ) {
+    LoRa.setSyncWord( incoming.charAt(3) );
+    sendMessage(sender, 0, "$$$");
+    return 1;
+  }
+
+  // check if it's a pairing ack
+  if ( incoming.substring(0,3) == "$$$" ) {
+    return 1;
+  }
+
+  return 0;
+
 }
 
