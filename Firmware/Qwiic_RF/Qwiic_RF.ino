@@ -36,6 +36,7 @@
 #define COMMAND_SET_TX_POWER 0x10
 #define COMMAND_SET_I2C_ADDRESS 0x20
 
+//These will help us keep track of how to respond to requests
 #define RESPONSE_TYPE_STATUS 0x00
 #define RESPONSE_TYPE_PAYLOAD 0x01
 #define RESPONSE_TYPE_RF_ADDRESS 0x02
@@ -107,6 +108,7 @@ packet lastSent = {0, 0, 0, 0, 0, 0, 0, ""};
 //Counter for the Pairing Button Hold-down
 uint16_t pair_hold = 0;
 
+//This will help us keep track of how to respond to requests
 byte responseType = RESPONSE_TYPE_STATUS;
 
 void setup()
@@ -117,41 +119,21 @@ void setup()
   pinMode(PAIR_LED, OUTPUT);
   pinMode(PWR_LED, OUTPUT);
 
-  //If this is the first ever boot, or EEPROM was nuked, load defaults to EEPROM:
-  if ( EEPROM.read(LOCATION_RADIO_ADDR) == 0xFF ) {
-
-    EEPROM.write(LOCATION_I2C_ADDR, I2C_ADDRESS_DEFAULT);
-    EEPROM.write(LOCATION_RADIO_ADDR, settingRFAddress);
-    EEPROM.write(LOCATION_SYNC_WORD, settingSyncWord);
-    EEPROM.write(LOCATION_SPREAD_FACTOR, settingSpreadFactor);
-    EEPROM.write(LOCATION_MESSAGE_TIMEOUT, settingMessageTimeout);
-    EEPROM.write(LOCATION_TX_POWER, settingTXPower);
-
-  } else {
-
-    settingRFAddress = EEPROM.read(LOCATION_RADIO_ADDR);
-    settingSyncWord = EEPROM.read(LOCATION_SYNC_WORD);
-    settingSpreadFactor = EEPROM.read(LOCATION_SPREAD_FACTOR);
-    settingMessageTimeout = EEPROM.read(LOCATION_MESSAGE_TIMEOUT);
-    settingTXPower = EEPROM.read(LOCATION_TX_POWER);
-
-  }
+  readSystemSettings(); //Load all system settings from EEPROM
 
   // override the default CS, reset, and IRQ pins (optional)
   LoRa.setPins(csPin, resetPin, irqPin);// set CS, reset, IRQ pin
 
-  readSystemSettings(); //Load all system settings from EEPROM
-
-  if (!LoRa.begin(915E6)) {             // initialize ratio at 915 MHz
+  if (!LoRa.begin(915E6)) { //Initialize ratio at 915 MHz
     while (true) {
-      // if failed, blink power LED
+      //If failed, blink power LED
       digitalWrite(PWR_LED, 1);
       delay(500);
       digitalWrite(PWR_LED, 0);
       delay(500);
     };
   } else {
-    // if success, light power LED
+    //If successful, light power LED
     digitalWrite(PWR_LED, 1);
   }
 
@@ -237,16 +219,15 @@ void onReceive(int packetSize) {
   }
 
   if (incomingLength != incoming.length()) {   // check length for error
-    return;                             // skip rest of function
+    return; //Get outta here
   }
 
-  // if the recipient isn't this device or broadcast,
+  //If the packet isn't addressed to this device or the broadcast channel,
   if (recipient != settingRFAddress && recipient != 0xFF) {
-    return;                             // skip rest of function
+    return; //Get outta here
   }
 
-  // if message is for this device, or broadcast, print details:
-
+  //If the message is for this device, or broadcast, store it appropriately:
   lastReceived.id = incomingMsgId;
   lastReceived.sender = sender;
   lastReceived.recipient = recipient;
@@ -257,14 +238,13 @@ void onReceive(int packetSize) {
   lastReceived.reliable = reliable;
 
   //If we're waiting on a Reliable Send ack, check to see if this is it.
-  //A Reliable Send Ack payload has three bytes:
-  //Byte 0: Reliable Ack Checksum
+  //A Reliable Send Ack payload has two bytes:
   //Byte 1: SNR of Reliable Packet
   //Byte 2: RSSI of Reliable Packet
   if ( (systemStatus >> 2) & 1 ) {
 
-    //If the first byte of the payload is equal to the sum of
-    //The last sent message, we have Reliable Ack.
+    //If the fourth byte of the header is equal to the sum of
+    //the last sent message, we have Reliable Ack.
     if ( reliable == reliableSendChk ) {
 
       reliableSendChk = 0x00; //Reset Checksum accumulator
@@ -281,7 +261,7 @@ void onReceive(int packetSize) {
     }
   }
 
-  //If this was a Reliable type message, calculate sum%255 and reply
+  //If this was a Reliable type message, calculate checksum and reply
   if ( reliable == 1 ) {
 
     String response = "";
@@ -304,7 +284,8 @@ void onReceive(int packetSize) {
 
   }
 
-  systemStatus |= 1 << 1; //Set "New Payload" Status Flag
+  //Set the "New Payload" Status Flag
+  systemStatus |= 1 << 1; 
 }
 
 void receiveEvent(int numberOfBytesReceived)
@@ -312,7 +293,8 @@ void receiveEvent(int numberOfBytesReceived)
   //Record bytes to local array
   byte incoming = Wire.read();
 
-  if (incoming == COMMAND_SET_I2C_ADDRESS) //Set new I2C address
+  //Set new I2C address
+  if (incoming == COMMAND_SET_I2C_ADDRESS) 
   {
     if (Wire.available())
     {
@@ -328,10 +310,12 @@ void receiveEvent(int numberOfBytesReceived)
       startI2C(); //Determine the I2C address we should be using and begin listening on I2C bus
     }
   }
+  //Return the current system status
   else if (incoming == COMMAND_GET_STATUS)
   {
     responseType = RESPONSE_TYPE_STATUS;
   }
+  //Send a payload via the radio
   else if (incoming == COMMAND_SEND)
   {
 
@@ -350,6 +334,7 @@ void receiveEvent(int numberOfBytesReceived)
     systemStatus |= 1 << 0; //Set "Ready" Status Flag
 
   }
+  //Send a payload via the radio and request ack
   else if (incoming == COMMAND_SEND_RELIABLE)
   {
 
@@ -387,6 +372,7 @@ void receiveEvent(int numberOfBytesReceived)
     systemStatus |= 1 << 2; //Set "Waiting on Reliable Send" Status Flag
 
   }
+  //Set the time in seconds to wait for reliable ack before failing
   else if (incoming == COMMAND_SET_RELIABLE_TIMEOUT)
   {
 
@@ -394,12 +380,14 @@ void receiveEvent(int numberOfBytesReceived)
     EEPROM.write(LOCATION_MESSAGE_TIMEOUT, settingMessageTimeout);
 
   }
+  //Return the payload of the last received packet
   else if (incoming == COMMAND_GET_PAYLOAD)
   {
 
     responseType = RESPONSE_TYPE_PAYLOAD;
 
   }
+  //Set the spread factor of the radio
   else if (incoming == COMMAND_SET_SPREAD_FACTOR)
   {
 
@@ -414,6 +402,7 @@ void receiveEvent(int numberOfBytesReceived)
     LoRa.setSpreadingFactor(settingSpreadFactor);
 
   }
+  //Set the Sync Word of the radio
   else if (incoming == COMMAND_SET_SYNC_WORD)
   {
 
@@ -422,6 +411,7 @@ void receiveEvent(int numberOfBytesReceived)
     LoRa.setSyncWord(settingSyncWord);
 
   }
+  //Set the Address of the radio
   else if (incoming == COMMAND_SET_RF_ADDRESS)
   {
 
@@ -433,6 +423,7 @@ void receiveEvent(int numberOfBytesReceived)
     }
 
   }
+  //Return the Address of the radio
   else if (incoming == COMMAND_GET_RF_ADDRESS)
   {
 
@@ -440,6 +431,7 @@ void receiveEvent(int numberOfBytesReceived)
     return;
 
   }
+  //Return the RSSI of the last received packet
   else if (incoming == COMMAND_GET_PACKET_RSSI)
   {
 
@@ -447,6 +439,7 @@ void receiveEvent(int numberOfBytesReceived)
     return;
 
   }
+  //Return the size of the payload of the last received packet
   else if (incoming == COMMAND_GET_PAYLOAD_SIZE)
   {
 
@@ -454,6 +447,7 @@ void receiveEvent(int numberOfBytesReceived)
     return;
 
   }
+  //Return the origin address of the last received packet
   else if (incoming == COMMAND_GET_PACKET_SENDER)
   {
 
@@ -461,6 +455,7 @@ void receiveEvent(int numberOfBytesReceived)
     return;
 
   }
+  //Return the destination address of the last received packet
   else if (incoming == COMMAND_GET_PACKET_RECIPIENT)
   {
 
@@ -468,6 +463,7 @@ void receiveEvent(int numberOfBytesReceived)
     return;
 
   }
+  //Return the SNR (Signal-to-Noise Ratio) of the last received packet
   else if (incoming == COMMAND_GET_PACKET_SNR)
   {
 
@@ -475,6 +471,7 @@ void receiveEvent(int numberOfBytesReceived)
     return;
 
   }
+  //Return the sequential ID of the last received packet
   else if (incoming == COMMAND_GET_PACKET_ID)
   {
 
@@ -482,6 +479,7 @@ void receiveEvent(int numberOfBytesReceived)
     return;
 
   }
+  //Adjust the radio transmit amplifier
   else if (incoming == COMMAND_SET_TX_POWER)
   {
 
@@ -498,10 +496,12 @@ void receiveEvent(int numberOfBytesReceived)
 
 void requestEvent()
 {
+  //Return system status byte
   if (responseType == RESPONSE_TYPE_STATUS)
   {
     Wire.write(systemStatus);
   }
+  //Return payload of last received packet
   else if (responseType == RESPONSE_TYPE_PAYLOAD)
   {
     char payload[256];
@@ -510,42 +510,49 @@ void requestEvent()
     responseType = RESPONSE_TYPE_STATUS;
     systemStatus &= ~(1 << 1); //Clear "New Payload" Status Flag
   }
+  //Return current local address
   else if (responseType == RESPONSE_TYPE_RF_ADDRESS)
   {
     Wire.write(settingRFAddress);
     responseType = RESPONSE_TYPE_STATUS;
   }
+  //Return the RSSI of the last received packet
   else if (responseType == RESPONSE_TYPE_PACKET_RSSI)
   {
     Wire.write(lastReceived.rssi);
     responseType = RESPONSE_TYPE_STATUS;
   }
+  //Return the size of the payload in the last received packet
   else if (responseType == RESPONSE_TYPE_PACKET_SIZE)
   {
     Wire.write(lastReceived.payloadLength);
     responseType = RESPONSE_TYPE_STATUS;
   }
+  //Return the origin address of the last received packet
   else if (responseType == RESPONSE_TYPE_PACKET_SENDER)
   {
     Wire.write(lastReceived.sender);
     responseType = RESPONSE_TYPE_STATUS;
   }
+  //Return the destination address of the last received packet
   else if (responseType == RESPONSE_TYPE_PACKET_RECIPIENT)
   {
     Wire.write(lastReceived.recipient);
     responseType = RESPONSE_TYPE_STATUS;
   }
+  //Return the SNR (Signal-to-Noise Ratio) of the last received packet
   else if (responseType == RESPONSE_TYPE_PACKET_SNR)
   {
     Wire.write(lastReceived.snr);
     responseType = RESPONSE_TYPE_STATUS;
   }
+  //Return the sequential ID of the last received packet
   else if (responseType == RESPONSE_TYPE_PACKET_ID)
   {
     Wire.write(lastReceived.id);
     responseType = RESPONSE_TYPE_STATUS;
   }
-  else //By default we respond with the result from the last operation
+  else //By default we respond with the system status byte
   {
     Wire.write(systemStatus);
   }
@@ -553,12 +560,26 @@ void requestEvent()
 
 void readSystemSettings(void)
 {
-  //Read what I2C address we should use
-  settingI2CAddress = EEPROM.read(LOCATION_I2C_ADDR);
-  if (settingI2CAddress == 255)
-  {
-    settingI2CAddress = I2C_ADDRESS_DEFAULT; //By default, we listen for I2C_ADDRESS_DEFAULT
-    EEPROM.write(LOCATION_I2C_ADDR, settingI2CAddress);
+
+    //If this is the first ever boot, or EEPROM was nuked, load defaults to EEPROM:
+  if ( EEPROM.read(LOCATION_RADIO_ADDR) == 0xFF ) {
+
+    EEPROM.write(LOCATION_I2C_ADDR, I2C_ADDRESS_DEFAULT);
+    EEPROM.write(LOCATION_RADIO_ADDR, settingRFAddress);
+    EEPROM.write(LOCATION_SYNC_WORD, settingSyncWord);
+    EEPROM.write(LOCATION_SPREAD_FACTOR, settingSpreadFactor);
+    EEPROM.write(LOCATION_MESSAGE_TIMEOUT, settingMessageTimeout);
+    EEPROM.write(LOCATION_TX_POWER, settingTXPower);
+
+  //If not, load radio paramters from EEPROM
+  } else {
+
+    settingRFAddress = EEPROM.read(LOCATION_RADIO_ADDR);
+    settingSyncWord = EEPROM.read(LOCATION_SYNC_WORD);
+    settingSpreadFactor = EEPROM.read(LOCATION_SPREAD_FACTOR);
+    settingMessageTimeout = EEPROM.read(LOCATION_MESSAGE_TIMEOUT);
+    settingTXPower = EEPROM.read(LOCATION_TX_POWER);
+
   }
 }
 
@@ -577,39 +598,69 @@ void startI2C()
   Wire.onRequest(requestEvent);
 }
 
+//Pairing Sequence:
+//1) Hold Pairing button on radio 1 until pairing LED turns on and then off again.
+//2) Hold Pairing button on radio 2 until pairing LED turns on and then off again.
+//3) Both Pairing LEDs will blink rapidly when paired
 void pairingSequence(void)
 {
+  //Turn on the pairing LED to signal the start of the pairing sequence
   digitalWrite(PAIR_LED, 1);
+  //Set SyncWord to known value for pairing
   LoRa.setSyncWord(0x00);
+  //Begin building pairing advertisement
   String advertise = "###";
+  //Seed PRNG with wideband RSSI
   randomSeed(LoRa.random());
+  //Randomly generate a new SyncWord
   byte newSyncWord = random(255);
+  //Add new SyncWord to advertisement
   advertise += newSyncWord;
+  //This flag will be used to skip the advertising stage if we're radio 2
+  bool paired = 0;
 
+  //Before we advertise, let's listen to see if we're radio 2
   for (unsigned long listening = millis() ; millis() < listening + 3000 ; ) {
 
-    pairingParser(LoRa.parsePacket());
+    paired = pairingParser(LoRa.parsePacket());
     
   }
-  
-  while ( !pairingParser(LoRa.parsePacket()) ) {
 
+  //Now that we're done listening, we assume we're radio 1. So turn off the 
+  //pairing LED to signal the user it's time to press the pairing button on radio 2
+  digitalWrite(PAIR_LED, 0);
+
+  //Until we get a pairing ack, keep sending advertisements on the broadcast channel
+  //with SyncWord 0x00 and then switching to the advertised SyncWord to listen for
+  //an ack. Only do this if we didn't pair up as someone's radio 2.
+  while ( !paired && !pairingParser(LoRa.parsePacket()) ) {
+
+    LoRa.setSyncWord(0x00);
     sendMessage(0xFF, 0, advertise);
+    LoRa.setSyncWord(newSyncWord);
     
   }
 
+  //Now that we have a friend with the same SyncWord, write it to EEPROM
+  settingSyncWord = newSyncWord;
+  EEPROM.write(LOCATION_SYNC_WORD, settingSyncWord);
+
+  //Blink rapidly to alert user that pairing was successful
   for ( uint8_t blinky = 0 ; blinky < 5 ; blinky++ ) {
 
-    digitalWrite(PAIR_LED, 0);
-    delay(250);
     digitalWrite(PAIR_LED, 1);
+    delay(250);
+    digitalWrite(PAIR_LED, 0);
     delay(250);
     
   }
-
-  digitalWrite(PAIR_LED, 0);
 }
 
+//The pairing parser is a stripped down version of the usual packet parser
+//which doesn't check the reliable packet status of incoming packets,
+//change the system status flags, or store packets to lastReceived. It's
+//used only for validating packets and searching their payloads for 
+//pairing advertisements and acks
 bool pairingParser(int packetSize) {
   
   if (packetSize == 0) return;          // if there's no packet, return
@@ -628,26 +679,29 @@ bool pairingParser(int packetSize) {
   }
 
   if (incomingLength != incoming.length()) {   // check length for error
-    return;                             // skip rest of function
+    return 0; //Get outta here
   }
 
-  // if the recipient isn't this device or broadcast,
+  //If the packet isn't addressed to this device or the broadcast channel,
   if (recipient != settingRFAddress && recipient != 0xFF) {
-    return 1;                             // skip rest of function
+    return 0; //Get outta here
   }
 
-  // check if it's a pairing request and send ack
+  //Check if it's a pairing request and send an ack if it is
   if ( incoming.substring(0,3) == "###" ) {
-    LoRa.setSyncWord( incoming.charAt(3) );
+    settingSyncWord = incoming.charAt(3);
+    EEPROM.write(LOCATION_SYNC_WORD, settingSyncWord);
+    LoRa.setSyncWord( settingSyncWord );
     sendMessage(sender, 0, "$$$");
     return 1;
   }
 
-  // check if it's a pairing ack
-  if ( incoming.substring(0,3) == "$$$" ) {
+  //Check if it's a pairing ack and return to pairing sequence if it is
+  if ( incoming.substring(0,3) == "$$$" ) {    
     return 1;
   }
 
+  //If the packet isn't for us, is malformed, or isn't any kind of pairing message,
   return 0;
 
 }
