@@ -1,9 +1,7 @@
-#include <Wire.h>
-#include <EEPROM.h>
-#include <SPI.h>
-#include <LoRa.h>
-#include <avr/sleep.h>
-#include <avr/power.h>
+#include <Wire.h> //Need this for I2C
+#include <EEPROM.h> //Need this for EEPROM Read/Write
+#include <SPI.h> //Need this to talk to the radio
+#include <LoRa.h> //https://github.com/sandeepmistry/arduino-LoRa
 
 //Location in EEPROM where various settings will be stored
 #define LOCATION_I2C_ADDR 0x01
@@ -174,13 +172,14 @@ void loop()
       pair_hold = 0;
       pairingSequence();
     }
-  }else{
+  } else {
     pair_hold = 0;
   }
 
   onReceive(LoRa.parsePacket());
 }
 
+//Send a message via the radio
 void sendMessage(byte destination, byte reliable, String outgoing)
 {
   LoRa.beginPacket();                   // start packet
@@ -202,6 +201,7 @@ void sendMessage(byte destination, byte reliable, String outgoing)
   msgCount++;                           // increment message ID
 }
 
+//Check for a new radio packet, parse it, store it
 void onReceive(int packetSize) {
   if (packetSize == 0) return;          // if there's no packet, return
 
@@ -272,8 +272,8 @@ void onReceive(int packetSize) {
     for ( int symbol = 0; symbol < incomingLength; symbol++ ) {
       reliableAckChk += incoming.charAt(symbol);
     }
-    //Because we use values 0 and 1 for signalling, we ensure that the 
-    //checksum can never be < 1 
+    //Because we use values 0 and 1 for signalling, we ensure that the
+    //checksum can never be < 1
     if ( reliableAckChk < 254 ) {
       reliableAckChk += 2;
     }
@@ -285,16 +285,17 @@ void onReceive(int packetSize) {
   }
 
   //Set the "New Payload" Status Flag
-  systemStatus |= 1 << 1; 
+  systemStatus |= 1 << 1;
 }
 
+//Read an I2C Request from the master
 void receiveEvent(int numberOfBytesReceived)
 {
   //Record bytes to local array
   byte incoming = Wire.read();
 
   //Set new I2C address
-  if (incoming == COMMAND_SET_I2C_ADDRESS) 
+  if (incoming == COMMAND_SET_I2C_ADDRESS)
   {
     if (Wire.available())
     {
@@ -355,17 +356,17 @@ void receiveEvent(int numberOfBytesReceived)
 
     //Calculate simple checksum of payload, reliableSendChk is type byte
     //so for sake of cycles, we will let it roll instead of explicitly
-    //calculating (sum payload % 256) 
+    //calculating (sum payload % 256)
     for ( int symbol = 0; symbol < payload.length(); symbol++ ) {
       reliableSendChk += payload.charAt(symbol);
     }
 
-    //Because we use values 0 and 1 for signalling, we ensure that the 
-    //checksum can never be < 1 
+    //Because we use values 0 and 1 for signalling, we ensure that the
+    //checksum can never be < 1
     if ( reliableSendChk < 254 ) {
       reliableSendChk += 2;
     }
-    
+
     reliableSendTime = millis();
     reliableResend = millis();
 
@@ -494,6 +495,7 @@ void receiveEvent(int numberOfBytesReceived)
   }
 }
 
+//Respond to I2C master's request for bytes
 void requestEvent()
 {
   //Return system status byte
@@ -558,10 +560,11 @@ void requestEvent()
   }
 }
 
+//Restore radio parameters or defaults
 void readSystemSettings(void)
 {
 
-    //If this is the first ever boot, or EEPROM was nuked, load defaults to EEPROM:
+  //If this is the first ever boot, or EEPROM was nuked, load defaults to EEPROM:
   if ( EEPROM.read(LOCATION_RADIO_ADDR) == 0xFF ) {
 
     EEPROM.write(LOCATION_I2C_ADDR, I2C_ADDRESS_DEFAULT);
@@ -571,7 +574,7 @@ void readSystemSettings(void)
     EEPROM.write(LOCATION_MESSAGE_TIMEOUT, settingMessageTimeout);
     EEPROM.write(LOCATION_TX_POWER, settingTXPower);
 
-  //If not, load radio paramters from EEPROM
+    //If not, load radio paramters from EEPROM
   } else {
 
     settingRFAddress = EEPROM.read(LOCATION_RADIO_ADDR);
@@ -602,6 +605,7 @@ void startI2C()
 //1) Hold Pairing button on radio 1 until pairing LED turns on and then off again.
 //2) Hold Pairing button on radio 2 until pairing LED turns on and then off again.
 //3) Both Pairing LEDs will blink rapidly when paired
+//Pairing results in two radios aggreeing to jump to a new random Sync Word
 void pairingSequence(void)
 {
   //Turn on the pairing LED to signal the start of the pairing sequence
@@ -623,10 +627,10 @@ void pairingSequence(void)
   for (unsigned long listening = millis() ; millis() < listening + 3000 ; ) {
 
     paired = pairingParser(LoRa.parsePacket());
-    
+
   }
 
-  //Now that we're done listening, we assume we're radio 1. So turn off the 
+  //Now that we're done listening, we assume we're radio 1. So turn off the
   //pairing LED to signal the user it's time to press the pairing button on radio 2
   digitalWrite(PAIR_LED, 0);
 
@@ -638,7 +642,7 @@ void pairingSequence(void)
     LoRa.setSyncWord(0x00);
     sendMessage(0xFF, 0, advertise);
     LoRa.setSyncWord(newSyncWord);
-    
+
   }
 
   //Now that we have a friend with the same SyncWord, write it to EEPROM
@@ -652,17 +656,17 @@ void pairingSequence(void)
     delay(250);
     digitalWrite(PAIR_LED, 0);
     delay(250);
-    
+
   }
 }
 
 //The pairing parser is a stripped down version of the usual packet parser
 //which doesn't check the reliable packet status of incoming packets,
 //change the system status flags, or store packets to lastReceived. It's
-//used only for validating packets and searching their payloads for 
+//used only for validating packets and searching their payloads for
 //pairing advertisements and acks
 bool pairingParser(int packetSize) {
-  
+
   if (packetSize == 0) return;          // if there's no packet, return
 
   // read packet header bytes:
@@ -688,7 +692,7 @@ bool pairingParser(int packetSize) {
   }
 
   //Check if it's a pairing request and send an ack if it is
-  if ( incoming.substring(0,3) == "###" ) {
+  if ( incoming.substring(0, 3) == "###" ) {
     settingSyncWord = incoming.charAt(3);
     EEPROM.write(LOCATION_SYNC_WORD, settingSyncWord);
     LoRa.setSyncWord( settingSyncWord );
@@ -697,7 +701,7 @@ bool pairingParser(int packetSize) {
   }
 
   //Check if it's a pairing ack and return to pairing sequence if it is
-  if ( incoming.substring(0,3) == "$$$" ) {    
+  if ( incoming.substring(0, 3) == "$$$" ) {
     return 1;
   }
 
