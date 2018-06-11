@@ -83,7 +83,7 @@ volatile byte reliableSendChk = 0x00;
 byte settingRFAddress = 0xBB;
 byte settingSyncWord = 0x00;
 byte settingSpreadFactor = 0x07;
-byte settingMessageTimeout = 0x1E;
+byte settingMessageTimeout = 0x0A;
 byte settingTXPower = 0x11;
 byte msgCount = 0x00;
 
@@ -102,12 +102,19 @@ typedef struct {
 //Let's initialize a few instances of our new type
 packet lastReceived = {0, 0, 0, 0, 0, 0, 0, ""};
 packet lastSent = {0, 0, 0, 0, 0, 0, 0, ""};
+packet outbox = {0, 0, 0, 0, 0, 0, 0, ""};
 
 //Counter for the Pairing Button Hold-down
 uint16_t pair_hold = 0;
 
 //This will help us keep track of how to respond to requests
 byte responseType = RESPONSE_TYPE_STATUS;
+
+//This flag will tell the main loop when an outgoing packet is waiting for the radio
+boolean outbox_waiting = 0;
+
+//This flag will tell the main loop to mark the beginning of a reliable send cycle
+boolean mark_time_reliable = 0;
 
 void setup()
 {
@@ -136,9 +143,14 @@ void setup()
   }
 
   //Set our radio parameters from the stored values
-  LoRa.setSyncWord(settingSyncWord);
-  LoRa.setSpreadingFactor(settingSpreadFactor);
-  LoRa.setTxPower(settingTXPower);
+  //LoRa.setSyncWord(settingSyncWord);
+  //LoRa.setSpreadingFactor(settingSpreadFactor);
+  //LoRa.setTxPower(settingTXPower);
+
+  LoRa.setSyncWord(0x34);
+  LoRa.setSpreadingFactor(7);
+  LoRa.setTxPower(17);
+  LoRa.enableCrc();
 
   //Begin listening on I2C only after we've setup all our config and opened any files
   startI2C(); //Determine the I2C address we should be using and begin listening on I2C bus
@@ -147,9 +159,19 @@ void setup()
 
 void loop()
 {
+
+  //If we just started a reliable send cycle, we need to mark the start time.
+  //We do it here instead of immediately after getting the command so that we aren't
+  //loading an unsigned long during an ISR
+  if (mark_time_reliable) {
+    systemStatus |= 1 << 2; //Set "Waiting on Reliable Send" Status Flag
+    reliableSendTime = reliableResend = millis();
+    mark_time_reliable = 0;
+  }
+
   //If there is a "Waiting on Reliable Send" flag and the ack timer has expired,
   //remove the flag and set the "Reliable Send Timeout" flag instead.
-  if ( ( (systemStatus >> 2) & 1 ) && ( millis() > ( reliableSendTime * 1000 ) + settingMessageTimeout ) ) {
+  if ( ( (systemStatus >> 2) & 1 ) && ( millis() > ( reliableSendTime + ( settingMessageTimeout * 1000 ) ) ) ) {
     systemStatus &= ~(1 << 2); //Clear "Waiting on Reliable Send" Status Flag
     systemStatus |= 1 << 0; //Set "Ready" Status Flag
     systemStatus |= 1 << 3; //Set "Reliable Send Timeout" Status Flag
@@ -158,7 +180,7 @@ void loop()
     reliableResend = 0x00; //Reset reliableResend timestamp
     //If there is a "Waiting on Reliable Send" flag and the ack timer has NOT expired,
     //check the reliable send interval counter and possibly try resending.
-  } else if ( ( (systemStatus >> 2) & 1 ) && ( millis() < ( reliableSendTime * 1000 ) + settingMessageTimeout ) ) {
+  } else if ( ( (systemStatus >> 2) & 1 ) && ( millis() < ( reliableSendTime + ( settingMessageTimeout * 1000 ) ) ) ) {
     if ( millis() > reliableResend + 1000 ) { //Retry once per second
       sendMessage(lastSent.recipient, 0, lastSent.payload);
       reliableResend = millis();
@@ -166,14 +188,20 @@ void loop()
   }
 
   //If the pairing button is being held
-  if ( !digitalRead(PAIR_BTN) ) {
+  if ( digitalRead(PAIR_BTN) == 0 ) {
     pair_hold++;
-    if (pair_hold > 2000) {
+    if (pair_hold > 5000) {
       pair_hold = 0;
       pairingSequence();
     }
   } else {
     pair_hold = 0;
+  }
+
+  if (outbox_waiting) {
+    sendMessage(outbox.recipient, outbox.reliable, outbox.payload);
+    outbox_waiting = 0;
+    systemStatus |= 1 << 0; //Set "Ready" Status Flag
   }
 
   onReceive(LoRa.parsePacket());
@@ -182,6 +210,7 @@ void loop()
 //Send a message via the radio
 void sendMessage(byte destination, byte reliable, String outgoing)
 {
+  digitalWrite(PAIR_LED, 1);
   LoRa.beginPacket();                   // start packet
   LoRa.write(destination);              // add destination address
   LoRa.write(settingRFAddress);         // add sender address
@@ -199,12 +228,14 @@ void sendMessage(byte destination, byte reliable, String outgoing)
   lastSent.reliable = reliable;
 
   msgCount++;                           // increment message ID
+  digitalWrite(PAIR_LED, 0);
 }
 
 //Check for a new radio packet, parse it, store it
 void onReceive(int packetSize) {
   if (packetSize == 0) return;          // if there's no packet, return
 
+  digitalWrite(PAIR_LED, 1);
   // read packet header bytes:
   int recipient = LoRa.read();          // recipient address
   byte sender = LoRa.read();            // sender address
@@ -217,6 +248,8 @@ void onReceive(int packetSize) {
   while (LoRa.available()) {
     incoming += (char)LoRa.read();
   }
+
+  digitalWrite(PAIR_LED, 0);
 
   if (incomingLength != incoming.length()) {   // check length for error
     return; //Get outta here
@@ -320,65 +353,66 @@ void receiveEvent(int numberOfBytesReceived)
   else if (incoming == COMMAND_SEND)
   {
 
-    byte recipient = Wire.read();
+    if (Wire.available() > 1) {
 
-    String payload = "";
+      byte recipient = Wire.read();
 
-    while (Wire.available()) {
-      payload += (char)Wire.read();
+      String payload = "";
+
+      while (Wire.available()) {
+        payload += (char)Wire.read();
+      }
+
+      queueMessage(recipient, 0, payload);
+
     }
-
-    systemStatus &= ~(1 << 0); //Clear "Ready" Status Flag
-
-    sendMessage(recipient, 0, payload);
-
-    systemStatus |= 1 << 0; //Set "Ready" Status Flag
 
   }
   //Send a payload via the radio and request ack
   else if (incoming == COMMAND_SEND_RELIABLE)
   {
 
-    byte recipient = Wire.read();
+    if (Wire.available() > 1) {
 
-    String payload = "";
+      byte recipient = Wire.read();
 
-    while (Wire.available()) {
-      payload += (char)Wire.read();
+      String payload = "";
+
+      while (Wire.available()) {
+        payload += (char)Wire.read();
+      }
+
+      queueMessage(recipient, 1, payload);
+
+      //Reset checksum accumulator
+      reliableSendChk = 0;
+
+      //Calculate simple checksum of payload, reliableSendChk is type byte
+      //so for sake of cycles, we will let it roll instead of explicitly
+      //calculating (sum payload % 256)
+      for ( int symbol = 0; symbol < payload.length(); symbol++ ) {
+        reliableSendChk += payload.charAt(symbol);
+      }
+
+      //Because we use values 0 and 1 for signalling, we ensure that the
+      //checksum can never be < 1
+      if ( reliableSendChk < 254 ) {
+        reliableSendChk += 2;
+      }
+
+      mark_time_reliable = 1;
+
     }
-
-    systemStatus &= ~(1 << 0); //Clear "Ready" Status Flag
-
-    sendMessage(recipient, 1, payload);
-
-    //Reset checksum accumulator
-    reliableSendChk = 0;
-
-    //Calculate simple checksum of payload, reliableSendChk is type byte
-    //so for sake of cycles, we will let it roll instead of explicitly
-    //calculating (sum payload % 256)
-    for ( int symbol = 0; symbol < payload.length(); symbol++ ) {
-      reliableSendChk += payload.charAt(symbol);
-    }
-
-    //Because we use values 0 and 1 for signalling, we ensure that the
-    //checksum can never be < 1
-    if ( reliableSendChk < 254 ) {
-      reliableSendChk += 2;
-    }
-
-    reliableSendTime = millis();
-    reliableResend = millis();
-
-    systemStatus |= 1 << 2; //Set "Waiting on Reliable Send" Status Flag
 
   }
   //Set the time in seconds to wait for reliable ack before failing
   else if (incoming == COMMAND_SET_RELIABLE_TIMEOUT)
   {
 
-    settingMessageTimeout = Wire.read();
-    EEPROM.write(LOCATION_MESSAGE_TIMEOUT, settingMessageTimeout);
+    if (Wire.available()) {
+      settingMessageTimeout = Wire.read();
+      EEPROM.write(LOCATION_MESSAGE_TIMEOUT, settingMessageTimeout);
+    }
 
   }
   //Return the payload of the last received packet
@@ -392,35 +426,40 @@ void receiveEvent(int numberOfBytesReceived)
   else if (incoming == COMMAND_SET_SPREAD_FACTOR)
   {
 
-    byte newSpreadFactor = Wire.read();
+    if (Wire.available()) {
+      byte newSpreadFactor = Wire.read();
 
-    if (newSpreadFactor > 12 || newSpreadFactor < 6) {
-      return;
+      if (newSpreadFactor > 12 || newSpreadFactor < 6) {
+        return;
+      }
+
+      settingSpreadFactor = newSpreadFactor;
+      EEPROM.write(LOCATION_SPREAD_FACTOR, settingSpreadFactor);
+      LoRa.setSpreadingFactor(settingSpreadFactor);
     }
-
-    settingSpreadFactor = newSpreadFactor;
-    EEPROM.write(LOCATION_SPREAD_FACTOR, settingSpreadFactor);
-    LoRa.setSpreadingFactor(settingSpreadFactor);
 
   }
   //Set the Sync Word of the radio
   else if (incoming == COMMAND_SET_SYNC_WORD)
   {
-
-    settingSyncWord = Wire.read();
-    EEPROM.write(LOCATION_SYNC_WORD, settingSyncWord);
-    LoRa.setSyncWord(settingSyncWord);
+    if (Wire.available()) {
+      settingSyncWord = Wire.read();
+      EEPROM.write(LOCATION_SYNC_WORD, settingSyncWord);
+      LoRa.setSyncWord(settingSyncWord);
+    }
 
   }
   //Set the Address of the radio
   else if (incoming == COMMAND_SET_RF_ADDRESS)
   {
 
-    byte newRFAddress = Wire.read();
+    if (Wire.available()) {
+      byte newRFAddress = Wire.read();
 
-    if (newRFAddress < 0xFF) { //0xFF is Broadcast Channel
-      settingRFAddress = newRFAddress;
-      EEPROM.write(LOCATION_RADIO_ADDR, settingRFAddress);
+      if (newRFAddress < 0xFF) { //0xFF is Broadcast Channel
+        settingRFAddress = newRFAddress;
+        EEPROM.write(LOCATION_RADIO_ADDR, settingRFAddress);
+      }
     }
 
   }
@@ -506,9 +545,11 @@ void requestEvent()
   //Return payload of last received packet
   else if (responseType == RESPONSE_TYPE_PAYLOAD)
   {
-    char payload[256];
-    lastReceived.payload.toCharArray(payload, 256);
-    Wire.write(payload, lastReceived.payloadLength);
+
+    for (byte len = 0; len < lastReceived.payloadLength; len++) {
+      Wire.write(lastReceived.payload.charAt(len));
+    }
+
     responseType = RESPONSE_TYPE_STATUS;
     systemStatus &= ~(1 << 1); //Clear "New Payload" Status Flag
   }
@@ -623,15 +664,19 @@ void pairingSequence(void)
   //This flag will be used to skip the advertising stage if we're radio 2
   bool paired = 0;
 
+
+
   //Before we advertise, let's listen to see if we're radio 2
-  for (unsigned long listening = millis() ; millis() < listening + 3000 ; ) {
+  for (int listening = 0 ; listening < 500 ; listening++) {
 
     paired = pairingParser(LoRa.parsePacket());
+    delay(10);
 
   }
 
   //Now that we're done listening, we assume we're radio 1. So turn off the
   //pairing LED to signal the user it's time to press the pairing button on radio 2
+
   digitalWrite(PAIR_LED, 0);
 
   //Until we get a pairing ack, keep sending advertisements on the broadcast channel
@@ -640,8 +685,11 @@ void pairingSequence(void)
   while ( !paired && !pairingParser(LoRa.parsePacket()) ) {
 
     LoRa.setSyncWord(0x00);
+    delay(200);
     sendMessage(0xFF, 0, advertise);
+    delay(200);
     LoRa.setSyncWord(newSyncWord);
+    delay(200);
 
   }
 
@@ -667,7 +715,7 @@ void pairingSequence(void)
 //pairing advertisements and acks
 bool pairingParser(int packetSize) {
 
-  if (packetSize == 0) return;          // if there's no packet, return
+  if (packetSize == 0) return 0;          // if there's no packet, return
 
   // read packet header bytes:
   int recipient = LoRa.read();          // recipient address
@@ -696,7 +744,7 @@ bool pairingParser(int packetSize) {
     settingSyncWord = incoming.charAt(3);
     EEPROM.write(LOCATION_SYNC_WORD, settingSyncWord);
     LoRa.setSyncWord( settingSyncWord );
-    sendMessage(sender, 0, "$$$");
+    sendMessage(0xFF, 0, "$$$");
     return 1;
   }
 
@@ -707,6 +755,22 @@ bool pairingParser(int packetSize) {
 
   //If the packet isn't for us, is malformed, or isn't any kind of pairing message,
   return 0;
+
+}
+
+//To avoid gross clock stretching and general strangeness, I moved radio 
+//operations out of the I2C ISR. This function passes stuff out of the 
+//ISR and sets flags for the radio routine to pick up later.
+void queueMessage(byte addr, byte reliable, String payload) {
+
+  systemStatus &= ~(1 << 0); //Clear "Ready" Status Flag
+
+  //Place packet info in the global outbox
+  outbox.recipient = addr;
+  outbox.reliable = reliable;
+  outbox.payload = payload;
+  
+  outbox_waiting = 1; //Tell the handler in the main loop that the outbox is ready
 
 }
 
