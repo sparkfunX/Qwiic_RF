@@ -38,6 +38,8 @@
 #define COMMAND_SET_PAIRED_ADDRESS 0x12
 #define COMMAND_GET_PAIRED_ADDRESS 0x13
 #define COMMAND_GET_SKU 0x15
+#define COMMAND_SEND_PAIRED 0x20
+#define COMMAND_SEND_RELIABLE_PAIRED 0x30
 
 //These will help us keep track of how to respond to requests
 #define RESPONSE_TYPE_STATUS 0x00
@@ -377,6 +379,24 @@ void receiveEvent(int numberOfBytesReceived)
     }
 
   }
+  //Send a payload via the radio to the last
+  //paired address
+  else if (incoming == COMMAND_SEND_PAIRED)
+  {
+
+    if (Wire.available() > 1) {
+
+      String payload = "";
+
+      while (Wire.available()) {
+        payload += (char)Wire.read();
+      }
+
+      queueMessage(settingPairedAddress, 0, payload);
+
+    }
+
+  }  
   //Send a payload via the radio and request ack
   else if (incoming == COMMAND_SEND_RELIABLE)
   {
@@ -414,6 +434,42 @@ void receiveEvent(int numberOfBytesReceived)
     }
 
   }
+  //Send a payload via the radio to the last paired
+  //address and request ack
+  else if (incoming == COMMAND_SEND_RELIABLE_PAIRED)
+  {
+
+    if (Wire.available() > 1) {
+
+      String payload = "";
+
+      while (Wire.available()) {
+        payload += (char)Wire.read();
+      }
+
+      queueMessage(settingPairedAddress, 1, payload);
+
+      //Reset checksum accumulator
+      reliableSendChk = 0;
+
+      //Calculate simple checksum of payload, reliableSendChk is type byte
+      //so for sake of cycles, we will let it roll instead of explicitly
+      //calculating (sum payload % 256)
+      for ( int symbol = 0; symbol < payload.length(); symbol++ ) {
+        reliableSendChk += payload.charAt(symbol);
+      }
+
+      //Because we use values 0 and 1 for signalling, we ensure that the
+      //checksum can never be < 1
+      if ( reliableSendChk < 254 ) {
+        reliableSendChk += 2;
+      }
+
+      mark_time_reliable = 1;
+
+    }
+
+  }  
   //Set the time in seconds to wait for reliable ack before failing
   else if (incoming == COMMAND_SET_RELIABLE_TIMEOUT)
   {
@@ -761,7 +817,7 @@ void pairingSequence(void)
       Serial.println("...");
 
       Wire.beginTransmission(addr);
-      Wire.write(0x15);
+      Wire.write(COMMAND_GET_SKU);
       Wire.endTransmission(false);
       Wire.requestFrom(addr, 5);
       
@@ -835,7 +891,7 @@ void pairingSequence(void)
 byte QwiicRF_GetSyncWord(byte i2c_addr){
     byte qrfSync = 0x00;
   Wire.beginTransmission(i2c_addr);
-  Wire.write(0x11); // Command: Get Sync Word
+  Wire.write(COMMAND_GET_SYNC_WORD); 
   Wire.endTransmission(false);
   Wire.requestFrom(i2c_addr, 1);
   while (Wire.available()) {
@@ -848,7 +904,7 @@ byte QwiicRF_GetSyncWord(byte i2c_addr){
 void QwiicRF_SetSyncWord(byte i2c_addr, byte syncword)
 {
   Wire.beginTransmission(i2c_addr);
-  Wire.write(0x07); // Command: Set Sync Word
+  Wire.write(COMMAND_SET_SYNC_WORD); 
   Wire.write(syncword); // Recipient: i2c_addr
   Wire.endTransmission(); 
 }
@@ -856,7 +912,7 @@ void QwiicRF_SetSyncWord(byte i2c_addr, byte syncword)
 byte QwiicRF_GetRFAddress(byte i2c_addr){
     byte qrfAddr = 0x00;
   Wire.beginTransmission(i2c_addr);
-  Wire.write(0x09); // Command: Get RF Address
+  Wire.write(COMMAND_GET_RF_ADDRESS);
   Wire.endTransmission(false);
   Wire.requestFrom(i2c_addr, 1);
   while (Wire.available()) {
@@ -869,7 +925,7 @@ byte QwiicRF_GetRFAddress(byte i2c_addr){
 void QwiicRF_SetRFAddress(byte i2c_addr, byte addr)
 {
   Wire.beginTransmission(i2c_addr);
-  Wire.write(0x08); // Command: Set RF Address
+  Wire.write(COMMAND_SET_RF_ADDRESS);
   Wire.write(addr); // Recipient: i2c_addr
   Wire.endTransmission(); 
 }
@@ -877,7 +933,7 @@ void QwiicRF_SetRFAddress(byte i2c_addr, byte addr)
 byte QwiicRF_GetPairedAddress(byte i2c_addr){
     byte qrfAddr = 0x00;
   Wire.beginTransmission(i2c_addr);
-  Wire.write(0x13); // Command: Get Paired Address
+  Wire.write(COMMAND_GET_PAIRED_ADDRESS);
   Wire.endTransmission(false);
   Wire.requestFrom(i2c_addr, 1);
   while (Wire.available()) {
@@ -890,7 +946,7 @@ byte QwiicRF_GetPairedAddress(byte i2c_addr){
 void QwiicRF_SetPairedAddress(byte i2c_addr, byte addr)
 {
   Wire.beginTransmission(i2c_addr);
-  Wire.write(0x12); // Command: Set Paired Address
+  Wire.write(COMMAND_SET_PAIRED_ADDRESS); // Command: Set Paired Address
   Wire.write(addr); // Recipient: i2c_addr
   Wire.endTransmission(); 
 }
