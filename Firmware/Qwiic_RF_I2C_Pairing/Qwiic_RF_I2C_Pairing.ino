@@ -10,6 +10,7 @@
 #define LOCATION_SPREAD_FACTOR 0x04
 #define LOCATION_MESSAGE_TIMEOUT 0x05
 #define LOCATION_TX_POWER 0x06
+#define LOCATION_PAIRED_ADDRESS 0x07
 
 //There is an ADR jumpber on this board. When closed, forces I2C address to default.
 #define I2C_ADDRESS_DEFAULT 0x35
@@ -23,6 +24,7 @@
 #define COMMAND_GET_PAYLOAD 0x05
 #define COMMAND_SET_SPREAD_FACTOR 0x06
 #define COMMAND_SET_SYNC_WORD 0x07
+#define COMMAND_GET_SYNC_WORD 0x11
 #define COMMAND_SET_RF_ADDRESS 0x08
 #define COMMAND_GET_RF_ADDRESS 0x09
 #define COMMAND_GET_PACKET_RSSI 0x0A
@@ -33,6 +35,9 @@
 #define COMMAND_GET_PACKET_ID 0x0F
 #define COMMAND_SET_TX_POWER 0x10
 #define COMMAND_SET_I2C_ADDRESS 0x20
+#define COMMAND_SET_PAIRED_ADDRESS 0x12
+#define COMMAND_GET_PAIRED_ADDRESS 0x13
+#define COMMAND_GET_SKU 0x15
 
 //These will help us keep track of how to respond to requests
 #define RESPONSE_TYPE_STATUS 0x00
@@ -44,6 +49,9 @@
 #define RESPONSE_TYPE_PACKET_RECIPIENT 0x06
 #define RESPONSE_TYPE_PACKET_SNR 0x07
 #define RESPONSE_TYPE_PACKET_ID 0x08
+#define RESPONSE_TYPE_SYNC_WORD 0x09
+#define RESPONSE_TYPE_PAIRED_ADDRESS 0x10
+#define RESPONSE_TYPE_SKU 0x11
 
 //A Few Pin Definitions
 #define ADR_JUMPER 4
@@ -54,6 +62,7 @@
 //Firmware version. This is sent when requested. Helpful for tech support.
 const byte firmwareVersionMajor = 0;
 const byte firmwareVersionMinor = 5;
+char SKU[] = "14788";
 
 //RFM95 pins
 const int csPin = 10;          // LoRa radio chip select
@@ -81,10 +90,11 @@ volatile byte reliableSendChk = 0x00;
 //Initialize the RFM95. We assign them default
 //values so we can load EEPROM on first boot.
 byte settingRFAddress = 0xBB;
-byte settingSyncWord = 0x00;
+byte settingSyncWord = 0x34;
 byte settingSpreadFactor = 0x07;
 byte settingMessageTimeout = 0x0A;
 byte settingTXPower = 0x11;
+byte settingPairedAddress = 0xBB;
 byte msgCount = 0x00;
 
 //This is a type for storing radio packets
@@ -118,6 +128,8 @@ boolean mark_time_reliable = 0;
 
 void setup()
 {
+Serial.begin(9600);
+  
   //Set pin modes
   pinMode(PAIR_BTN, INPUT_PULLUP);
   pinMode(ADR_JUMPER, INPUT_PULLUP);
@@ -143,13 +155,10 @@ void setup()
   }
 
   //Set our radio parameters from the stored values
-  //LoRa.setSyncWord(settingSyncWord);
-  //LoRa.setSpreadingFactor(settingSpreadFactor);
-  //LoRa.setTxPower(settingTXPower);
+  LoRa.setSyncWord(settingSyncWord);
+  LoRa.setSpreadingFactor(settingSpreadFactor);
+  LoRa.setTxPower(settingTXPower);
 
-  LoRa.setSyncWord(0x34);
-  LoRa.setSpreadingFactor(7);
-  LoRa.setTxPower(17);
   LoRa.enableCrc();
 
   //Begin listening on I2C only after we've setup all our config and opened any files
@@ -415,6 +424,23 @@ void receiveEvent(int numberOfBytesReceived)
     }
 
   }
+  //Store the address of a paired radio
+  else if (incoming == COMMAND_SET_PAIRED_ADDRESS)
+  {
+
+    if (Wire.available()) {
+      settingPairedAddress = Wire.read();
+      EEPROM.write(LOCATION_PAIRED_ADDRESS, settingPairedAddress);
+    }
+
+  }
+  //Return the address of a paired radio
+  else if (incoming == COMMAND_GET_PAIRED_ADDRESS)
+  {
+
+    responseType = RESPONSE_TYPE_PAIRED_ADDRESS;
+
+  }  
   //Return the payload of the last received packet
   else if (incoming == COMMAND_GET_PAYLOAD)
   {
@@ -503,6 +529,13 @@ void receiveEvent(int numberOfBytesReceived)
     return;
 
   }
+    else if (incoming == COMMAND_GET_SYNC_WORD)
+  {
+
+    responseType = RESPONSE_TYPE_SYNC_WORD;
+    return;
+
+  }
   //Return the SNR (Signal-to-Noise Ratio) of the last received packet
   else if (incoming == COMMAND_GET_PACKET_SNR)
   {
@@ -516,6 +549,15 @@ void receiveEvent(int numberOfBytesReceived)
   {
 
     responseType = RESPONSE_TYPE_PACKET_ID;
+    return;
+
+  }
+  //Return the SKU of this product. Used to identify
+  //other radios on the bus during pairing operations.
+  else if (incoming == COMMAND_GET_SKU)
+  {
+
+    responseType = RESPONSE_TYPE_SKU;
     return;
 
   }
@@ -558,6 +600,11 @@ void requestEvent()
   {
     Wire.write(settingRFAddress);
     responseType = RESPONSE_TYPE_STATUS;
+  }  
+  else if (responseType == RESPONSE_TYPE_SYNC_WORD)
+  {
+    Wire.write(settingSyncWord);
+    responseType = RESPONSE_TYPE_STATUS;
   }
   //Return the RSSI of the last received packet
   else if (responseType == RESPONSE_TYPE_PACKET_RSSI)
@@ -595,7 +642,19 @@ void requestEvent()
     Wire.write(lastReceived.id);
     responseType = RESPONSE_TYPE_STATUS;
   }
-  else //By default we respond with the system status byte
+  else if (responseType == RESPONSE_TYPE_PAIRED_ADDRESS)
+  {
+    Wire.write(settingPairedAddress);
+    responseType = RESPONSE_TYPE_STATUS;
+  }  
+  //This is used to identify other radios on the bus during
+  //pairing operations.
+  else if (responseType == RESPONSE_TYPE_SKU)
+  {
+    Wire.write(SKU, 5);
+    responseType = RESPONSE_TYPE_STATUS;
+  }  
+  else //By default we respond with the system status    
   {
     Wire.write(systemStatus);
   }
@@ -614,7 +673,8 @@ void readSystemSettings(void)
     EEPROM.write(LOCATION_SPREAD_FACTOR, settingSpreadFactor);
     EEPROM.write(LOCATION_MESSAGE_TIMEOUT, settingMessageTimeout);
     EEPROM.write(LOCATION_TX_POWER, settingTXPower);
-
+    EEPROM.write(LOCATION_PAIRED_ADDRESS, settingPairedAddress);
+    
     //If not, load radio paramters from EEPROM
   } else {
 
@@ -623,6 +683,7 @@ void readSystemSettings(void)
     settingSpreadFactor = EEPROM.read(LOCATION_SPREAD_FACTOR);
     settingMessageTimeout = EEPROM.read(LOCATION_MESSAGE_TIMEOUT);
     settingTXPower = EEPROM.read(LOCATION_TX_POWER);
+    settingPairedAddress = EEPROM.read(LOCATION_PAIRED_ADDRESS);
 
   }
 }
@@ -642,122 +703,6 @@ void startI2C()
   Wire.onRequest(requestEvent);
 }
 
-//Pairing Sequence:
-//1) Hold Pairing button on radio 1 until pairing LED turns on and then off again.
-//2) Hold Pairing button on radio 2 until pairing LED turns on and then off again.
-//3) Both Pairing LEDs will blink rapidly when paired
-//Pairing results in two radios aggreeing to jump to a new random Sync Word
-void pairingSequence(void)
-{
-  //Turn on the pairing LED to signal the start of the pairing sequence
-  digitalWrite(PAIR_LED, 1);
-  //Set SyncWord to known value for pairing
-  LoRa.setSyncWord(0x00);
-  //Begin building pairing advertisement
-  String advertise = "###";
-  //Seed PRNG with wideband RSSI
-  randomSeed(LoRa.random());
-  //Randomly generate a new SyncWord
-  byte newSyncWord = random(255);
-  //Add new SyncWord to advertisement
-  advertise += newSyncWord;
-  //This flag will be used to skip the advertising stage if we're radio 2
-  bool paired = 0;
-
-
-
-  //Before we advertise, let's listen to see if we're radio 2
-  for (int listening = 0 ; listening < 500 ; listening++) {
-
-    paired = pairingParser(LoRa.parsePacket());
-    delay(10);
-
-  }
-
-  //Now that we're done listening, we assume we're radio 1. So turn off the
-  //pairing LED to signal the user it's time to press the pairing button on radio 2
-
-  digitalWrite(PAIR_LED, 0);
-
-  //Until we get a pairing ack, keep sending advertisements on the broadcast channel
-  //with SyncWord 0x00 and then switching to the advertised SyncWord to listen for
-  //an ack. Only do this if we didn't pair up as someone's radio 2.
-  while ( !paired && !pairingParser(LoRa.parsePacket()) ) {
-
-    LoRa.setSyncWord(0x00);
-    delay(200);
-    sendMessage(0xFF, 0, advertise);
-    delay(200);
-    LoRa.setSyncWord(newSyncWord);
-    delay(200);
-
-  }
-
-  //Now that we have a friend with the same SyncWord, write it to EEPROM
-  settingSyncWord = newSyncWord;
-  EEPROM.write(LOCATION_SYNC_WORD, settingSyncWord);
-
-  //Blink rapidly to alert user that pairing was successful
-  for ( uint8_t blinky = 0 ; blinky < 5 ; blinky++ ) {
-
-    digitalWrite(PAIR_LED, 1);
-    delay(250);
-    digitalWrite(PAIR_LED, 0);
-    delay(250);
-
-  }
-}
-
-//The pairing parser is a stripped down version of the usual packet parser
-//which doesn't check the reliable packet status of incoming packets,
-//change the system status flags, or store packets to lastReceived. It's
-//used only for validating packets and searching their payloads for
-//pairing advertisements and acks
-bool pairingParser(int packetSize) {
-
-  if (packetSize == 0) return 0;          // if there's no packet, return
-
-  // read packet header bytes:
-  int recipient = LoRa.read();          // recipient address
-  byte sender = LoRa.read();            // sender address
-  byte incomingMsgId = LoRa.read();     // incoming msg ID
-  byte reliable = LoRa.read();          // reliable send tag
-  byte incomingLength = LoRa.read();    // incoming msg length
-
-  String incoming = "";
-
-  while (LoRa.available()) {
-    incoming += (char)LoRa.read();
-  }
-
-  if (incomingLength != incoming.length()) {   // check length for error
-    return 0; //Get outta here
-  }
-
-  //If the packet isn't addressed to this device or the broadcast channel,
-  if (recipient != settingRFAddress && recipient != 0xFF) {
-    return 0; //Get outta here
-  }
-
-  //Check if it's a pairing request and send an ack if it is
-  if ( incoming.substring(0, 3) == "###" ) {
-    settingSyncWord = incoming.charAt(3);
-    EEPROM.write(LOCATION_SYNC_WORD, settingSyncWord);
-    LoRa.setSyncWord( settingSyncWord );
-    sendMessage(0xFF, 0, "$$$");
-    return 1;
-  }
-
-  //Check if it's a pairing ack and return to pairing sequence if it is
-  if ( incoming.substring(0, 3) == "$$$" ) {
-    return 1;
-  }
-
-  //If the packet isn't for us, is malformed, or isn't any kind of pairing message,
-  return 0;
-
-}
-
 //To avoid gross clock stretching and general strangeness, I moved radio 
 //operations out of the I2C ISR. This function passes stuff out of the 
 //ISR and sets flags for the radio routine to pick up later.
@@ -773,4 +718,182 @@ void queueMessage(byte addr, byte reliable, String payload) {
   outbox_waiting = 1; //Tell the handler in the main loop that the outbox is ready
 
 }
+
+//Pairing Sequence:
+//Pairing results in 
+void pairingSequence(void)
+{
+    //Turn on the Status LED to alert the user that pairing has begun
+    digitalWrite(PAIR_LED, 1);
+
+    //Leave the I2C bus and then come back as a master
+    Wire.end();
+    Wire.begin();
+    
+    //Generate some random addresses and a new sync word
+    randomSeed(LoRa.random()); //Seed PRNG with wideband RSSI
+    byte newSyncWord = random(0x01, 0xFF); //Randomly generate a new SyncWord
+    byte newRFAddressA = random(0x01, 0xF0); //Randomly generate a new RF Address for Initiator
+    byte newRFAddressB = random(0x01, 0xF0); //Randomly generate a new RF Address for Subscriber
+    byte sub_addr = 0x00;
+    String incoming = "";
+    
+    //Try to avoid collisions
+    while( newRFAddressA == newRFAddressB ) {
+      newRFAddressB = random(0x01, 0xF0); //Randomly generate a new RF Address for Subscriber
+    }
+
+    Serial.print("Generated new sync word: ");
+    Serial.println(newSyncWord);
+    Serial.print("Generated new Initiator Address: ");
+    Serial.println(newRFAddressA);
+    Serial.print("Generated new Subscriber Address: ");
+    Serial.println(newRFAddressB);
+
+    Serial.println();
+    Serial.println("Looking for Subscriber...");
+
+    //Find the Subscriber's I2C Address
+    for ( byte addr = 0x08 ; addr < 0x7F ; addr++ ) {
+
+      Serial.print("Trying Address 0x");
+      Serial.print(addr, HEX);
+      Serial.println("...");
+
+      Wire.beginTransmission(addr);
+      Wire.write(0x15);
+      Wire.endTransmission(false);
+      Wire.requestFrom(addr, 5);
+      
+      while ( Wire.available() ) {
+        incoming += char( Wire.read() );
+      }
+
+      if ( incoming != "") {
+      Serial.print("Got ");
+      Serial.println(incoming);
+      }
+
+      if ( incoming == "14788" ) {
+        sub_addr = addr;
+        Serial.print("Found Subscriber at address 0x");
+        Serial.println(sub_addr, HEX);
+        break;
+      }else{
+        incoming = "";
+      }
+
+    }
+
+    // Set the Subscriber's Sync Word 
+    while ( QwiicRF_GetSyncWord(sub_addr) != newSyncWord ) {
+
+      QwiicRF_SetSyncWord(sub_addr, newSyncWord);
+      delay(200);
+      
+    }
+
+    //Set the Subscriber's RF Address
+    while ( QwiicRF_GetRFAddress(sub_addr) != newRFAddressB ) {
+
+      QwiicRF_SetRFAddress(sub_addr, newRFAddressB);
+      delay(200);
+      
+    }
+
+    //Set the Subscriber's Paired RF Address to our own
+    while ( QwiicRF_GetPairedAddress(sub_addr) != newRFAddressA ) {
+
+      QwiicRF_SetPairedAddress(sub_addr, newRFAddressA);
+      delay(200);
+      
+    }
+
+    //Now that the Subscriber is configured, let's config ourselves
+    settingSyncWord = newSyncWord;
+    EEPROM.write(LOCATION_SYNC_WORD, settingSyncWord);
+    LoRa.setSyncWord(settingSyncWord);
+    
+    settingRFAddress = newRFAddressA;
+    EEPROM.write(LOCATION_RADIO_ADDR, settingRFAddress);
+
+    settingPairedAddress = newRFAddressB;
+    EEPROM.write(LOCATION_PAIRED_ADDRESS, settingPairedAddress);
+
+    //Turn off the Status LED to alert the user that pairing has finished
+    digitalWrite(PAIR_LED, 0);    
+
+    //Return to I2C Slave Mode
+    startI2C();
+
+}
+
+/************************************************************************
+ * I2C MASTER FUNCTIONS FOR PAIRING
+ */
+
+byte QwiicRF_GetSyncWord(byte i2c_addr){
+    byte qrfSync = 0x00;
+  Wire.beginTransmission(i2c_addr);
+  Wire.write(0x11); // Command: Get Sync Word
+  Wire.endTransmission(false);
+  Wire.requestFrom(i2c_addr, 1);
+  while (Wire.available()) {
+    qrfSync = Wire.read();
+  }
+
+  return qrfSync;
+}
+
+void QwiicRF_SetSyncWord(byte i2c_addr, byte syncword)
+{
+  Wire.beginTransmission(i2c_addr);
+  Wire.write(0x07); // Command: Set Sync Word
+  Wire.write(syncword); // Recipient: i2c_addr
+  Wire.endTransmission(); 
+}
+
+byte QwiicRF_GetRFAddress(byte i2c_addr){
+    byte qrfAddr = 0x00;
+  Wire.beginTransmission(i2c_addr);
+  Wire.write(0x09); // Command: Get RF Address
+  Wire.endTransmission(false);
+  Wire.requestFrom(i2c_addr, 1);
+  while (Wire.available()) {
+    qrfAddr = Wire.read();
+  }
+
+  return qrfAddr;
+}
+
+void QwiicRF_SetRFAddress(byte i2c_addr, byte addr)
+{
+  Wire.beginTransmission(i2c_addr);
+  Wire.write(0x08); // Command: Set RF Address
+  Wire.write(addr); // Recipient: i2c_addr
+  Wire.endTransmission(); 
+}
+
+byte QwiicRF_GetPairedAddress(byte i2c_addr){
+    byte qrfAddr = 0x00;
+  Wire.beginTransmission(i2c_addr);
+  Wire.write(0x13); // Command: Get Paired Address
+  Wire.endTransmission(false);
+  Wire.requestFrom(i2c_addr, 1);
+  while (Wire.available()) {
+    qrfAddr = Wire.read();
+  }
+
+  return qrfAddr;
+}
+
+void QwiicRF_SetPairedAddress(byte i2c_addr, byte addr)
+{
+  Wire.beginTransmission(i2c_addr);
+  Wire.write(0x12); // Command: Set Paired Address
+  Wire.write(addr); // Recipient: i2c_addr
+  Wire.endTransmission(); 
+}
+
+
 
