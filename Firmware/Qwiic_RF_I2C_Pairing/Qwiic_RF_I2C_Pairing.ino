@@ -130,8 +130,7 @@ boolean mark_time_reliable = 0;
 
 void setup()
 {
-Serial.begin(9600);
-  
+    
   //Set pin modes
   pinMode(PAIR_BTN, INPUT_PULLUP);
   pinMode(ADR_JUMPER, INPUT_PULLUP);
@@ -799,22 +798,8 @@ void pairingSequence(void)
       newRFAddressB = random(0x01, 0xF0); //Randomly generate a new RF Address for Subscriber
     }
 
-    Serial.print("Generated new sync word: ");
-    Serial.println(newSyncWord);
-    Serial.print("Generated new Initiator Address: ");
-    Serial.println(newRFAddressA);
-    Serial.print("Generated new Subscriber Address: ");
-    Serial.println(newRFAddressB);
-
-    Serial.println();
-    Serial.println("Looking for Subscriber...");
-
     //Find the Subscriber's I2C Address
     for ( byte addr = 0x08 ; addr < 0x7F ; addr++ ) {
-
-      Serial.print("Trying Address 0x");
-      Serial.print(addr, HEX);
-      Serial.println("...");
 
       Wire.beginTransmission(addr);
       Wire.write(COMMAND_GET_SKU);
@@ -825,15 +810,8 @@ void pairingSequence(void)
         incoming += char( Wire.read() );
       }
 
-      if ( incoming != "") {
-      Serial.print("Got ");
-      Serial.println(incoming);
-      }
-
       if ( incoming == "14788" ) {
         sub_addr = addr;
-        Serial.print("Found Subscriber at address 0x");
-        Serial.println(sub_addr, HEX);
         break;
       }else{
         incoming = "";
