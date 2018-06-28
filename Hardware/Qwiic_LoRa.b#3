@@ -164,7 +164,7 @@
 <wire x1="0" y1="40.31" x2="0" y2="0" width="0.2032" layer="20"/>
 <wire x1="55.88" y1="20.32" x2="-10.16" y2="20.32" width="0.254" layer="46"/>
 <text x="-10.16" y="20.828" size="1.778" layer="46" font="vector" ratio="15">vscore</text>
-<text x="0.254" y="6.477" size="1.778" layer="16" font="vector" ratio="15" rot="MR90">X01</text>
+<text x="0.254" y="6.477" size="1.778" layer="16" font="vector" ratio="15" rot="MR90">X02</text>
 <text x="11.43" y="6.35" size="1.778" layer="51" font="vector" ratio="15">RFM95W
 915MHz</text>
 <text x="63.5" y="38.1" size="1.778" layer="51" font="vector" ratio="15">0.8mm Thickness PCB</text>
@@ -5328,7 +5328,7 @@ You are welcome to use this library for commercial purposes. For attribution, we
 <element name="J2" library="SparkFun-Connectors" package="1X04_1MM_RA" value="Qwiic Right Angle" x="48.26" y="16.51" rot="R90">
 <attribute name="PROD_ID" value="CONN-13694" x="48.26" y="16.51" size="1.778" layer="27" rot="R90" display="off"/>
 </element>
-<element name="J4" library="SparkFun-Connectors" package="2X3_TEST_POINTS" value="AVR_SPI_PROG_3X2TESTPOINTS" x="31.75" y="11.43" rot="MR90"/>
+<element name="J4" library="SparkFun-Connectors" package="2X3_TEST_POINTS" value="AVR_SPI_PROG" x="31.75" y="11.43" rot="MR90"/>
 <element name="J5" library="SparkFun-Connectors" package="U.FL" value="U.FL" x="3.683" y="12.954" rot="R90">
 <attribute name="SF_ID" value="WRL-09144" x="3.683" y="12.954" size="1.778" layer="27" rot="R90" display="off"/>
 <attribute name="PROD_ID" value="CONN-09193" x="3.683" y="12.954" size="1.778" layer="27" rot="R90" display="off"/>
@@ -5420,9 +5420,9 @@ You are welcome to use this library for commercial purposes. For attribution, we
 <attribute name="PROD_ID" value=" " x="6.731" y="16.764" size="1.778" layer="27" font="vector" ratio="15" rot="R270" display="off"/>
 </element>
 <element name="FRAME1" library="SparkFun-Aesthetics" package="CREATIVE_COMMONS" value="FRAME-LETTER" x="20.32" y="-10.16"/>
-<element name="TP1" library="SparkFun-Connectors" package="PAD.03X.03" value="TEST-POINT3" x="37.084" y="18.415"/>
-<element name="TP2" library="SparkFun-Connectors" package="PAD.03X.03" value="TEST-POINT3" x="35.814" y="18.415"/>
-<element name="TP3" library="SparkFun-Connectors" package="PAD.03X.03" value="TEST-POINT3" x="38.354" y="18.415"/>
+<element name="TP1" library="SparkFun-Connectors" package="PAD.03X.03" value="" x="37.084" y="18.415"/>
+<element name="TP2" library="SparkFun-Connectors" package="PAD.03X.03" value="" x="35.814" y="18.415"/>
+<element name="TP3" library="SparkFun-Connectors" package="PAD.03X.03" value="" x="38.354" y="18.415"/>
 <element name="U$11" library="buzzard_labels (32)" package="TX1" value="" x="34.798" y="17.526"/>
 <element name="U$27" library="buzzard_labels (32)" package="RX0" value="" x="36.068" y="17.526"/>
 <element name="U$28" library="buzzard_labels (32)" package="RST2" value="" x="37.338" y="17.526"/>
@@ -5787,8 +5787,8 @@ You are welcome to use this library for commercial purposes. For attribution, we
 <signal name="N$9">
 <contactref element="J5" pad="FEED"/>
 <contactref element="R6" pad="1"/>
-<wire x1="4.992" y1="15.875" x2="3.722" y2="14.518" width="1.4478" layer="1"/>
-<wire x1="3.722" y1="14.518" x2="3.683" y2="14.479" width="1.4478" layer="1"/>
+<wire x1="3.683" y1="14.479" x2="3.683" y2="14.566" width="1.4478" layer="1"/>
+<wire x1="3.683" y1="14.566" x2="4.992" y2="15.875" width="1.4478" layer="1"/>
 </signal>
 <signal name="N$3">
 <contactref element="U1" pad="20"/>
@@ -5939,10 +5939,8 @@ You are welcome to use this library for commercial purposes. For attribution, we
 <approved hash="5,1,8f56a50bdd31f32f"/>
 <approved hash="5,1,0ca8afb6d38c74d1"/>
 <approved hash="5,1,edd6438b3bb191af"/>
-<approved hash="20,1,b67e83a8ac80d556"/>
 <approved hash="20,1,f67404a83e7f97ab"/>
 <approved hash="20,1,0978b4a72c7f0551"/>
-<approved hash="20,1,d37edae8adffd113"/>
 <approved hash="20,1,117453e8bdff136c"/>
 <approved hash="20,1,ae791be7aff00511"/>
 <approved hash="20,1,5c46b1cdb13a5cb1"/>
@@ -5970,6 +5968,56 @@ You are welcome to use this library for commercial purposes. For attribution, we
 <approved hash="19,16,3aa7f94dfe973d7d"/>
 <approved hash="19,16,5c11a1049ffa26fe"/>
 <approved hash="19,16,8f45c13744f2c37c"/>
+<approved hash="19,1,0091d2bb007a4996"/>
+<approved hash="19,1,400c2aa3523cc613"/>
+<approved hash="19,1,400c2aa3523cc613"/>
+<approved hash="5,1,67fff4dc3d383aed"/>
+<approved hash="5,1,2ad527d1ca3de9dc"/>
+<approved hash="19,1,75bdbe889c70f7ae"/>
+<approved hash="19,1,6b0b2fe957bf70c9"/>
+<approved hash="19,1,7ac8ca22c98f7965"/>
+<approved hash="19,1,b47f9d9de347cc4f"/>
+<approved hash="19,1,3404434c444a24d0"/>
+<approved hash="19,1,03c08456efdf940d"/>
+<approved hash="5,1,1b58f258525e6951"/>
+<approved hash="19,1,4f3e70aafca7c333"/>
+<approved hash="5,1,62498f7e5869cdbf"/>
+<approved hash="19,1,4f3e70aafca7c333"/>
+<approved hash="5,1,97d729c955f3efae"/>
+<approved hash="5,1,44a3cafeb2c438da"/>
+<approved hash="5,1,35d408ca74f04dad"/>
+<approved hash="5,1,26a264ff1cc45ada"/>
+<approved hash="20,1,bf8c62b78c62e5a4"/>
+<approved hash="20,1,ff7ffbb7be9f035b"/>
+<approved hash="20,1,b67e83a8ac80d556"/>
+<approved hash="20,1,5c0dc1e843e32d65"/>
+<approved hash="20,1,9e7e5ae823e11718"/>
+<approved hash="20,1,d37edae8adffd113"/>
+<approved hash="20,1,c5b15a3a5a36c5bd"/>
+<approved hash="20,1,1ab17b3a7b361abd"/>
+<approved hash="19,16,841a97cc2d90138e"/>
+<approved hash="19,16,656e40952c84c187"/>
+<approved hash="19,16,656e40952c84c187"/>
+<approved hash="19,16,5abc1b13f160672b"/>
+<approved hash="19,16,ce4461cd9b8ee3e3"/>
+<approved hash="19,16,ce4461cd9b8ee3e3"/>
+<approved hash="19,16,cc6466e79c94e1f3"/>
+<approved hash="19,16,5c741ad5f63a677f"/>
+<approved hash="19,16,5c741ad5f63a677f"/>
+<approved hash="19,16,78a1414b46917f7b"/>
+<approved hash="19,16,78f5411f405979b3"/>
+<approved hash="19,16,78f5411f405979b3"/>
+<approved hash="19,16,14c1944d908597fa"/>
+<approved hash="19,16,78a1414b46917f7b"/>
+<approved hash="19,16,7a81436b44817d6b"/>
+<approved hash="19,16,74d821f3f74f0850"/>
+<approved hash="19,16,78f5411f405979b3"/>
+<approved hash="19,16,78a1414b46917f7b"/>
+<approved hash="19,16,8f103f05f3fb0cea"/>
+<approved hash="19,16,78a1414b46917f7b"/>
+<approved hash="19,16,8f103f05f3fb0cea"/>
+<approved hash="19,16,14c1944d908597fa"/>
+<approved hash="19,16,ad4bdf224defb875"/>
 </errors>
 </board>
 </drawing>

@@ -2724,7 +2724,7 @@ You are welcome to use this library for commercial purposes. For attribution, we
 <wire x1="31.5" y1="9.5" x2="36.5" y2="9.5" width="1" layer="1"/>
 <wire x1="36.5" y1="9.5" x2="36.5" y2="20.5" width="1" layer="1"/>
 <wire x1="36.5" y1="20.5" x2="41.5" y2="20.5" width="1" layer="1"/>
-<wire x1="41.5" y1="20.5" x2="41.5" y2="9.5" width="1" layer="1"/>
+<wire x1="41.5" y1="20.5" x2="41.5" y2="17.12" width="1" layer="1"/>
 <polygon width="1" layer="40">
 <vertex x="-1" y="1.5"/>
 <vertex x="-1" y="21"/>

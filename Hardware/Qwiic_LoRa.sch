@@ -4895,6 +4895,8 @@ You are welcome to use this library for commercial purposes. For attribution, we
 <part name="TP1" library="SparkFun-Connectors" deviceset="TEST-POINT" device="3" value=""/>
 <part name="TP2" library="SparkFun-Connectors" deviceset="TEST-POINT" device="3" value=""/>
 <part name="TP3" library="SparkFun-Connectors" deviceset="TEST-POINT" device="3" value=""/>
+<part name="R12" library="SparkFun-Resistors" deviceset="10KOHM" device="-0603-1/10W-1%" value="10k"/>
+<part name="SUPPLY4" library="SparkFun-PowerSymbols" deviceset="3.3V" device=""/>
 </parts>
 <sheets>
 <sheet>
@@ -4950,8 +4952,8 @@ Test Points</text>
 <instance part="D2" gate="G$1" x="25.4" y="93.98"/>
 <instance part="J1" gate="G$1" x="20.32" y="17.78"/>
 <instance part="J4" gate="G$1" x="27.94" y="53.34"/>
-<instance part="SUPPLY2" gate="G$1" x="73.66" y="172.72"/>
-<instance part="GND2" gate="1" x="73.66" y="137.16"/>
+<instance part="SUPPLY2" gate="G$1" x="71.12" y="172.72"/>
+<instance part="GND2" gate="1" x="71.12" y="137.16"/>
 <instance part="U1" gate="U1" x="190.5" y="121.92"/>
 <instance part="R1" gate="G$1" x="160.02" y="160.02" rot="R90"/>
 <instance part="SUPPLY3" gate="G$1" x="165.1" y="170.18"/>
@@ -4989,9 +4991,9 @@ Test Points</text>
 <instance part="R8" gate="G$1" x="175.26" y="50.8" rot="R180"/>
 <instance part="R9" gate="G$1" x="175.26" y="55.88" rot="R180"/>
 <instance part="GND7" gate="1" x="185.42" y="48.26"/>
-<instance part="U2" gate="G$1" x="91.44" y="154.94"/>
+<instance part="U2" gate="G$1" x="88.9" y="154.94"/>
 <instance part="J6" gate="G$1" x="129.54" y="55.88"/>
-<instance part="C1" gate="G$1" x="73.66" y="154.94"/>
+<instance part="C1" gate="G$1" x="71.12" y="154.94"/>
 <instance part="SUPPLY1" gate="G$1" x="152.4" y="101.6"/>
 <instance part="GND13" gate="1" x="152.4" y="86.36"/>
 <instance part="C3" gate="G$1" x="152.4" y="93.98"/>
@@ -5006,19 +5008,21 @@ Test Points</text>
 <instance part="TP1" gate="G$1" x="76.2" y="58.42" rot="R180"/>
 <instance part="TP2" gate="G$1" x="76.2" y="55.88" rot="R180"/>
 <instance part="TP3" gate="G$1" x="76.2" y="53.34" rot="R180"/>
+<instance part="R12" gate="G$1" x="116.84" y="149.86" rot="R90"/>
+<instance part="SUPPLY4" gate="G$1" x="116.84" y="157.48"/>
 </instances>
 <busses>
 </busses>
 <nets>
 <net name="3.3V" class="1">
 <segment>
-<wire x1="76.2" y1="170.18" x2="73.66" y2="170.18" width="0.1524" layer="91"/>
-<wire x1="73.66" y1="170.18" x2="73.66" y2="172.72" width="0.1524" layer="91"/>
+<wire x1="73.66" y1="170.18" x2="71.12" y2="170.18" width="0.1524" layer="91"/>
+<wire x1="71.12" y1="170.18" x2="71.12" y2="172.72" width="0.1524" layer="91"/>
 <pinref part="SUPPLY2" gate="G$1" pin="3.3V"/>
 <pinref part="U2" gate="G$1" pin="3.3V"/>
 <pinref part="C1" gate="G$1" pin="1"/>
-<wire x1="73.66" y1="160.02" x2="73.66" y2="170.18" width="0.1524" layer="91"/>
-<junction x="73.66" y="170.18"/>
+<wire x1="71.12" y1="160.02" x2="71.12" y2="170.18" width="0.1524" layer="91"/>
+<junction x="71.12" y="170.18"/>
 </segment>
 <segment>
 <pinref part="U1" gate="U1" pin="VCC"/>
@@ -5069,16 +5073,21 @@ Test Points</text>
 <wire x1="152.4" y1="101.6" x2="152.4" y2="99.06" width="0.1524" layer="91"/>
 <pinref part="C3" gate="G$1" pin="1"/>
 </segment>
+<segment>
+<pinref part="R12" gate="G$1" pin="2"/>
+<wire x1="116.84" y1="154.94" x2="116.84" y2="157.48" width="0.1524" layer="91"/>
+<pinref part="SUPPLY4" gate="G$1" pin="3.3V"/>
+</segment>
 </net>
 <net name="GND" class="0">
 <segment>
-<wire x1="73.66" y1="142.24" x2="73.66" y2="139.7" width="0.1524" layer="91"/>
-<wire x1="76.2" y1="142.24" x2="73.66" y2="142.24" width="0.1524" layer="91"/>
+<wire x1="71.12" y1="142.24" x2="71.12" y2="139.7" width="0.1524" layer="91"/>
+<wire x1="73.66" y1="142.24" x2="71.12" y2="142.24" width="0.1524" layer="91"/>
 <pinref part="GND2" gate="1" pin="GND"/>
 <pinref part="U2" gate="G$1" pin="GND"/>
 <pinref part="C1" gate="G$1" pin="2"/>
-<wire x1="73.66" y1="152.4" x2="73.66" y2="142.24" width="0.1524" layer="91"/>
-<junction x="73.66" y="142.24"/>
+<wire x1="71.12" y1="152.4" x2="71.12" y2="142.24" width="0.1524" layer="91"/>
+<junction x="71.12" y="142.24"/>
 </segment>
 <segment>
 <pinref part="Y1" gate="G$1" pin="2"/>
@@ -5186,8 +5195,8 @@ Test Points</text>
 </net>
 <net name="MISO" class="0">
 <segment>
-<wire x1="106.68" y1="149.86" x2="109.22" y2="149.86" width="0.1524" layer="91"/>
-<label x="109.22" y="149.86" size="1.27" layer="95" xref="yes"/>
+<wire x1="104.14" y1="149.86" x2="106.68" y2="149.86" width="0.1524" layer="91"/>
+<label x="106.68" y="149.86" size="1.27" layer="95" xref="yes"/>
 <pinref part="U2" gate="G$1" pin="MISO"/>
 </segment>
 <segment>
@@ -5203,8 +5212,8 @@ Test Points</text>
 </net>
 <net name="MOSI" class="0">
 <segment>
-<wire x1="106.68" y1="147.32" x2="109.22" y2="147.32" width="0.1524" layer="91"/>
-<label x="109.22" y="147.32" size="1.27" layer="95" xref="yes"/>
+<wire x1="104.14" y1="147.32" x2="106.68" y2="147.32" width="0.1524" layer="91"/>
+<label x="106.68" y="147.32" size="1.27" layer="95" xref="yes"/>
 <pinref part="U2" gate="G$1" pin="MOSI"/>
 </segment>
 <segment>
@@ -5220,8 +5229,8 @@ Test Points</text>
 </net>
 <net name="SCK" class="0">
 <segment>
-<wire x1="106.68" y1="144.78" x2="109.22" y2="144.78" width="0.1524" layer="91"/>
-<label x="109.22" y="144.78" size="1.27" layer="95" xref="yes"/>
+<wire x1="104.14" y1="144.78" x2="106.68" y2="144.78" width="0.1524" layer="91"/>
+<label x="106.68" y="144.78" size="1.27" layer="95" xref="yes"/>
 <pinref part="U2" gate="G$1" pin="SCK"/>
 </segment>
 <segment>
@@ -5237,9 +5246,13 @@ Test Points</text>
 </net>
 <net name="RFM_CS" class="0">
 <segment>
-<wire x1="106.68" y1="142.24" x2="109.22" y2="142.24" width="0.1524" layer="91"/>
-<label x="109.22" y="142.24" size="1.27" layer="95" xref="yes"/>
+<wire x1="104.14" y1="142.24" x2="116.84" y2="142.24" width="0.1524" layer="91"/>
+<label x="119.38" y="142.24" size="1.27" layer="95" xref="yes"/>
 <pinref part="U2" gate="G$1" pin="NSS"/>
+<wire x1="116.84" y1="142.24" x2="119.38" y2="142.24" width="0.1524" layer="91"/>
+<wire x1="116.84" y1="142.24" x2="116.84" y2="144.78" width="0.1524" layer="91"/>
+<junction x="116.84" y="142.24"/>
+<pinref part="R12" gate="G$1" pin="1"/>
 </segment>
 <segment>
 <pinref part="U1" gate="U1" pin="PB2(SS/OC1B)"/>
@@ -5249,8 +5262,8 @@ Test Points</text>
 </net>
 <net name="RFM_RST" class="0">
 <segment>
-<wire x1="76.2" y1="167.64" x2="71.12" y2="167.64" width="0.1524" layer="91"/>
-<label x="71.12" y="167.64" size="1.27" layer="95" rot="R180" xref="yes"/>
+<wire x1="73.66" y1="167.64" x2="68.58" y2="167.64" width="0.1524" layer="91"/>
+<label x="68.58" y="167.64" size="1.27" layer="95" rot="R180" xref="yes"/>
 <pinref part="U2" gate="G$1" pin="!RESET"/>
 </segment>
 <segment>
@@ -5261,8 +5274,8 @@ Test Points</text>
 </net>
 <net name="ANT" class="0">
 <segment>
-<wire x1="76.2" y1="147.32" x2="71.12" y2="147.32" width="0.1524" layer="91"/>
-<label x="71.12" y="147.32" size="1.27" layer="95" rot="R180" xref="yes"/>
+<wire x1="73.66" y1="147.32" x2="68.58" y2="147.32" width="0.1524" layer="91"/>
+<label x="68.58" y="147.32" size="1.27" layer="95" rot="R180" xref="yes"/>
 <pinref part="U2" gate="G$1" pin="ANT"/>
 </segment>
 <segment>
@@ -5447,8 +5460,8 @@ Test Points</text>
 <label x="213.36" y="121.92" size="1.27" layer="95" xref="yes"/>
 </segment>
 <segment>
-<wire x1="106.68" y1="170.18" x2="109.22" y2="170.18" width="0.1524" layer="91"/>
-<label x="109.22" y="170.18" size="1.27" layer="95" xref="yes"/>
+<wire x1="104.14" y1="170.18" x2="106.68" y2="170.18" width="0.1524" layer="91"/>
+<label x="106.68" y="170.18" size="1.27" layer="95" xref="yes"/>
 <pinref part="U2" gate="G$1" pin="DIO0"/>
 </segment>
 </net>
@@ -5522,8 +5535,8 @@ Test Points</text>
 <net name="RFM_DIO1" class="0">
 <segment>
 <pinref part="U2" gate="G$1" pin="DIO1"/>
-<wire x1="106.68" y1="167.64" x2="109.22" y2="167.64" width="0.1524" layer="91"/>
-<label x="109.22" y="167.64" size="1.27" layer="95" xref="yes"/>
+<wire x1="104.14" y1="167.64" x2="106.68" y2="167.64" width="0.1524" layer="91"/>
+<label x="106.68" y="167.64" size="1.27" layer="95" xref="yes"/>
 </segment>
 <segment>
 <pinref part="U1" gate="U1" pin="PD6(AIN0)"/>
@@ -5534,8 +5547,8 @@ Test Points</text>
 <net name="RFM_DIO2" class="0">
 <segment>
 <pinref part="U2" gate="G$1" pin="DIO2"/>
-<wire x1="106.68" y1="165.1" x2="109.22" y2="165.1" width="0.1524" layer="91"/>
-<label x="109.22" y="165.1" size="1.27" layer="95" xref="yes"/>
+<wire x1="104.14" y1="165.1" x2="106.68" y2="165.1" width="0.1524" layer="91"/>
+<label x="106.68" y="165.1" size="1.27" layer="95" xref="yes"/>
 </segment>
 <segment>
 <pinref part="U1" gate="U1" pin="PD7(AIN1)"/>

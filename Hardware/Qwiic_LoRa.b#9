@@ -5080,8 +5080,8 @@ You are welcome to use this library for commercial purposes. For attribution, we
 <element name="Y1" library="SparkFun-Clocks" package="RESONATOR-SMD-3.2X1.3" value="16MHz" x="28.067" y="18.415" rot="R180">
 <attribute name="PROD_ID" value="XTAL-08900" x="28.067" y="18.415" size="1.778" layer="27" rot="R180" display="off"/>
 </element>
-<element name="H3" library="SparkFun-Hardware" package="STAND-OFF" value="STAND-OFF" x="2.54" y="2.54"/>
-<element name="H4" library="SparkFun-Hardware" package="STAND-OFF" value="STAND-OFF" x="2.54" y="22.86"/>
+<element name="H3" library="SparkFun-Hardware" package="STAND-OFF" value="STAND-OFF" x="0" y="3.81"/>
+<element name="H4" library="SparkFun-Hardware" package="STAND-OFF" value="STAND-OFF" x="0" y="24.13"/>
 <element name="C2" library="SparkFun-Capacitors" package="0603" value="0.1uF" x="38.1" y="15.24">
 <attribute name="PROD_ID" value="CAP-00810" x="38.1" y="15.24" size="1.778" layer="27" font="vector" ratio="15" display="off"/>
 </element>
@@ -5320,6 +5320,13 @@ You are welcome to use this library for commercial purposes. For attribution, we
 <contactref element="U2" pad="ANT"/>
 <wire x1="6.978" y1="15.89" x2="4.167" y2="15.89" width="1.4478" layer="1"/>
 <wire x1="6.978" y1="15.89" x2="8.739" y2="15.89" width="1.4478" layer="1"/>
+<contactref element="R6" pad="2"/>
+<contactref element="R7" pad="1"/>
+<wire x1="4.152" y1="15.875" x2="8.724" y2="15.875" width="1.4478" layer="1"/>
+<wire x1="8.724" y1="15.875" x2="12.319" y2="19.47" width="1.4478" layer="1"/>
+<contactref element="R11" pad="2"/>
+<wire x1="4.191" y1="15.914" x2="4.152" y2="15.875" width="0.254" layer="1"/>
+<wire x1="8.724" y1="15.875" x2="8.739" y2="15.89" width="0" layer="19" extent="1-1"/>
 </signal>
 <signal name="RST">
 <contactref element="U1" pad="29"/>
@@ -5543,14 +5550,6 @@ You are welcome to use this library for commercial purposes. For attribution, we
 <via x="37.592" y="21.209" extent="1-16" drill="0.3048"/>
 <via x="39.37" y="21.209" extent="1-16" drill="0.3048"/>
 <contactref element="R9" pad="2"/>
-</signal>
-<signal name="N$10">
-<contactref element="R6" pad="2"/>
-<contactref element="R7" pad="1"/>
-<wire x1="4.152" y1="15.875" x2="8.724" y2="15.875" width="1.4478" layer="1"/>
-<wire x1="8.724" y1="15.875" x2="12.319" y2="19.47" width="1.4478" layer="1"/>
-<contactref element="R11" pad="2"/>
-<wire x1="4.191" y1="15.914" x2="4.152" y2="15.875" width="0.254" layer="1"/>
 </signal>
 <signal name="INT">
 <contactref element="J6" pad="1"/>
